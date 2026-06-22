@@ -1,0 +1,35 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "soma-mcp"
+version = "0.1.0"
+description = "A private, self-hosted reference implementation of the Model Context Protocol"
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "Apache-2.0" }
+authors = [{ name = "SOMA" }]
+keywords = ["mcp", "model-context-protocol", "fastmcp", "memory", "rag", "self-hosted"]
+dependencies = [
+    "fastmcp>=3.4.2",
+    "mcp>=1.27.2",
+]
+
+[project.optional-dependencies]
+# Only needed for encrypted, persistent OAuth token storage (production).
+auth = ["cryptography", "py-key-value-aio[disk]"]
+dev = ["pytest>=8"]
+
+[project.urls]
+Homepage = "https://github.com/odbgrowth/soma-mcp"
+Specification = "https://modelcontextprotocol.io"
+
+[project.scripts]
+soma-mcp = "soma_mcp.server:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+pythonpath = ["src"]
