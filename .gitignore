@@ -17,3 +17,6 @@ venv/
 mcp_audit.jsonl
 mcp_tokens/
 .env
+.env.*
+!.env.example
+.codex-local/

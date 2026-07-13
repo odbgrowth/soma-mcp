@@ -1,0 +1,66 @@
+approval_policy = "on-request"
+sandbox_mode = "workspace-write"
+allow_login_shell = false
+
+[sandbox_workspace_write]
+network_access = false
+
+[shell_environment_policy]
+inherit = "core"
+ignore_default_excludes = false
+exclude = ["*_KEY", "*_SECRET", "*_TOKEN", "*_PASSWORD", "*_CREDENTIAL*"]
+
+[mcp_servers.soma]
+url = "https://soma.usesiva.net/mcp"
+auth = "oauth"
+enabled = true
+required = false
+startup_timeout_sec = 20
+tool_timeout_sec = 120
+default_tools_approval_mode = "writes"
+enabled_tools = [
+  "soma_search",
+  "soma_get",
+  "soma_debug",
+  "soma_context",
+  "soma_whoami",
+  "soma_bronnen",
+  "soma_naar_dataroom",
+  "soma_write",
+  "soma_update",
+  "soma_feedback",
+  "soma_delete",
+]
+
+[mcp_servers.soma.tools.soma_delete]
+approval_mode = "prompt"
+
+[mcp_servers.soma.tools.soma_naar_dataroom]
+approval_mode = "prompt"
+
+[mcp_servers.soma.tools.soma_search]
+approval_mode = "approve"
+
+[mcp_servers.soma.tools.soma_get]
+approval_mode = "approve"
+
+[mcp_servers.soma.tools.soma_debug]
+approval_mode = "prompt"
+
+[mcp_servers.soma.tools.soma_context]
+approval_mode = "approve"
+
+[mcp_servers.soma.tools.soma_whoami]
+approval_mode = "approve"
+
+[mcp_servers.soma.tools.soma_bronnen]
+approval_mode = "approve"
+
+[mcp_servers.linear]
+url = "https://mcp.linear.app/mcp"
+auth = "oauth"
+enabled = true
+required = false
+startup_timeout_sec = 20
+tool_timeout_sec = 120
+default_tools_approval_mode = "writes"

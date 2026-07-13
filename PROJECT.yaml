@@ -1,0 +1,34 @@
+schema_version: 1
+project:
+  id: soma-mcp
+  name: SOMA MCP reference implementation
+  repository: odbgrowth/soma-mcp
+  type: python-package
+  source_of_truth: git
+runtime:
+  language: python
+  minimum_version: "3.10"
+delivery:
+  production_branch: main
+  automatic_production_deploy: false
+  verify: .devflows/verify
+  merge_requires_onno_approval: true
+  production_requires_onno_approval: true
+agents:
+  shared_instructions: AGENTS.md
+  concurrent_work: separate_worktrees
+  roles:
+    orchestrator: coordinate_only
+    architect: propose_adr_no_implementation
+    developer: feature_branch_write
+    reviewer: read_only_independent_review
+    tester: validation_only
+    devops: guarded_delivery_only
+    security: read_only_trust_boundary_review
+integrations:
+  memory: soma-mcp
+  source_control: github
+  excluded: [canva, make]
+secrets:
+  policy: local_profiles_or_secret_store_never_git
+  example_file: .env.example
