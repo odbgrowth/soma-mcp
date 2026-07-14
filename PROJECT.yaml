@@ -32,3 +32,8 @@ integrations:
 secrets:
   policy: local_profiles_or_secret_store_never_git
   example_file: .env.example
+  local_to_nuc_sync: disabled_until_deployment_target_exists
+agent_runtime:
+  roles: docs/agent-roles.md
+  codex_config: .codex/config.toml
+  codex_hooks: .codex/hooks.json

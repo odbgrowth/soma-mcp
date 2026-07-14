@@ -2,6 +2,14 @@ approval_policy = "on-request"
 sandbox_mode = "workspace-write"
 allow_login_shell = false
 
+[features]
+hooks = true
+
+[agents]
+max_threads = 4
+max_depth = 1
+interrupt_message = true
+
 [sandbox_workspace_write]
 network_access = false
 
@@ -32,20 +40,11 @@ enabled_tools = [
   "soma_delete",
 ]
 
-[mcp_servers.soma.tools.soma_delete]
-approval_mode = "prompt"
-
-[mcp_servers.soma.tools.soma_naar_dataroom]
-approval_mode = "prompt"
-
 [mcp_servers.soma.tools.soma_search]
 approval_mode = "approve"
 
 [mcp_servers.soma.tools.soma_get]
 approval_mode = "approve"
-
-[mcp_servers.soma.tools.soma_debug]
-approval_mode = "prompt"
 
 [mcp_servers.soma.tools.soma_context]
 approval_mode = "approve"
@@ -56,6 +55,15 @@ approval_mode = "approve"
 [mcp_servers.soma.tools.soma_bronnen]
 approval_mode = "approve"
 
+[mcp_servers.soma.tools.soma_debug]
+approval_mode = "prompt"
+
+[mcp_servers.soma.tools.soma_naar_dataroom]
+approval_mode = "prompt"
+
+[mcp_servers.soma.tools.soma_delete]
+approval_mode = "prompt"
+
 [mcp_servers.linear]
 url = "https://mcp.linear.app/mcp"
 auth = "oauth"
@@ -64,3 +72,12 @@ required = false
 startup_timeout_sec = 20
 tool_timeout_sec = 120
 default_tools_approval_mode = "writes"
+
+[mcp_servers.linear.tools.delete_attachment]
+approval_mode = "prompt"
+
+[mcp_servers.linear.tools.delete_comment]
+approval_mode = "prompt"
+
+[mcp_servers.linear.tools.delete_status_update]
+approval_mode = "prompt"

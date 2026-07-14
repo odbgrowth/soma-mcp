@@ -1,0 +1,45 @@
+{
+  "hooks": {
+    "SessionStart": [
+      {
+        "matcher": "startup|resume|clear|compact",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"$(git rev-parse --show-toplevel)/.codex/hooks/policy.py\"",
+            "commandWindows": "py -3 -c \"from pathlib import Path; import runpy; p=next(x/'.codex/hooks/policy.py' for x in [Path.cwd(),*Path.cwd().parents] if (x/'.codex/hooks/policy.py').is_file()); runpy.run_path(str(p),run_name='__main__')\"",
+            "statusMessage": "Loading shared project policy",
+            "timeout": 10
+          }
+        ]
+      }
+    ],
+    "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"$(git rev-parse --show-toplevel)/.codex/hooks/policy.py\"",
+            "commandWindows": "py -3 -c \"from pathlib import Path; import runpy; p=next(x/'.codex/hooks/policy.py' for x in [Path.cwd(),*Path.cwd().parents] if (x/'.codex/hooks/policy.py').is_file()); runpy.run_path(str(p),run_name='__main__')\"",
+            "statusMessage": "Checking shared safety policy",
+            "timeout": 10
+          }
+        ]
+      }
+    ],
+    "SubagentStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"$(git rev-parse --show-toplevel)/.codex/hooks/policy.py\"",
+            "commandWindows": "py -3 -c \"from pathlib import Path; import runpy; p=next(x/'.codex/hooks/policy.py' for x in [Path.cwd(),*Path.cwd().parents] if (x/'.codex/hooks/policy.py').is_file()); runpy.run_path(str(p),run_name='__main__')\"",
+            "statusMessage": "Applying shared handoff policy",
+            "timeout": 10
+          }
+        ]
+      }
+    ]
+  }
+}
