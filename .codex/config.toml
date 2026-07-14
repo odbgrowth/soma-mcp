@@ -1,5 +1,5 @@
 approval_policy = "on-request"
-sandbox_mode = "workspace-write"
+default_permissions = "soma_workspace"
 allow_login_shell = false
 
 [features]
@@ -10,8 +10,26 @@ max_threads = 4
 max_depth = 1
 interrupt_message = true
 
-[sandbox_workspace_write]
-network_access = false
+[permissions.soma_workspace]
+description = "Workspace access with project secrets and private keys denied."
+extends = ":workspace"
+
+[permissions.soma_workspace.filesystem]
+glob_scan_max_depth = 6
+
+[permissions.soma_workspace.filesystem.":workspace_roots"]
+".env" = "deny"
+".env.*" = "deny"
+"**/.env" = "deny"
+"**/.env.*" = "deny"
+"*.pem" = "deny"
+"**/*.pem" = "deny"
+"*.key" = "deny"
+"**/*.key" = "deny"
+"*credentials*.json" = "deny"
+"**/*credentials*.json" = "deny"
+"*service-account*.json" = "deny"
+"**/*service-account*.json" = "deny"
 
 [shell_environment_policy]
 inherit = "core"

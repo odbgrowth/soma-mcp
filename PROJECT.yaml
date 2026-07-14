@@ -1,4 +1,10 @@
 schema_version: 1
+privacy:
+  repository_visibility: public
+  new_repositories_default: private
+  public_exception: soma-mcp-reference-implementation
+  visibility_change_requires_onno_approval: true
+  public_content_policy: no-secrets-no-tenant-or-customer-data
 project:
   id: soma-mcp
   name: SOMA MCP reference implementation

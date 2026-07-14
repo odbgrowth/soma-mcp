@@ -1,4 +1,8 @@
-"""Deterministic Codex lifecycle guard shared by parity-enabled projects."""
+"""Advisory Codex lifecycle policy shared by parity-enabled projects.
+
+Filesystem permission profiles and GitHub rulesets are the enforcement boundaries.
+Hooks add context and warnings; current PreToolUse hooks do not block execution.
+"""
 
 from __future__ import annotations
 
@@ -69,13 +73,7 @@ def response(payload: dict[str, Any]) -> dict[str, Any] | None:
     if event == "PreToolUse":
         reason = blocked_reason(command_from(payload))
         if reason:
-            return {
-                "hookSpecificOutput": {
-                    "hookEventName": "PreToolUse",
-                    "permissionDecision": "deny",
-                    "permissionDecisionReason": reason,
-                }
-            }
+            return {"systemMessage": f"Project policy warning: {reason}. Do not proceed."}
     return None
 
 
