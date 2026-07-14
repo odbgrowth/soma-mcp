@@ -1,0 +1,65 @@
+# Project-local Codex execution policy.
+#
+# The permission profile in ../config.toml is the filesystem security boundary.
+# These rules keep delivery mutations behind the guarded .devflows entry points.
+# GitHub rulesets remain the final server-side protection for protected branches.
+
+prefix_rule(
+    pattern = ["git", "reset"],
+    decision = "forbidden",
+    justification = "Do not reset shared work. Inspect the diff and ask the orchestrator for a recovery plan.",
+)
+
+prefix_rule(
+    pattern = ["git", "clean"],
+    decision = "forbidden",
+    justification = "Do not delete untracked work. Report it to the branch owner.",
+)
+
+prefix_rule(
+    pattern = ["git", "commit"],
+    decision = "forbidden",
+    justification = "Use the guarded project commit devflow with explicit paths.",
+)
+
+prefix_rule(
+    pattern = ["git", "push"],
+    decision = "forbidden",
+    justification = "Use the guarded project push devflow after verification and approval.",
+)
+
+prefix_rule(
+    pattern = ["git", "merge"],
+    decision = "forbidden",
+    justification = "Merges require the documented GitHub PR path and a separate approval.",
+)
+
+prefix_rule(
+    pattern = ["gh", "pr", "create"],
+    decision = "forbidden",
+    justification = "Use the guarded project PR devflow.",
+)
+
+prefix_rule(
+    pattern = ["gh", "pr", "merge"],
+    decision = "forbidden",
+    justification = "PR merge requires exact Onno approval for that merge.",
+)
+
+prefix_rule(
+    pattern = ["gh", "workflow", "run"],
+    decision = "forbidden",
+    justification = "Manual workflow dispatch may deploy; use the guarded release flow.",
+)
+
+prefix_rule(
+    pattern = ["gh", "repo", ["edit", "delete"]],
+    decision = "forbidden",
+    justification = "Repository visibility and deletion require a separate exact Onno approval.",
+)
+
+prefix_rule(
+    pattern = ["gh", "api"],
+    decision = "prompt",
+    justification = "GitHub API calls can mutate external state; review the exact request.",
+)

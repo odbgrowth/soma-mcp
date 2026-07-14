@@ -103,7 +103,7 @@ def executable(name: str) -> str | None:
         )
         package_root = Path.home() / "AppData" / "Local" / "Microsoft" / "WinGet" / "Packages"
         if package_root.is_dir():
-            candidates.extend(package_root.glob(f"*/bin/{name}.exe"))
+            candidates.extend(package_root.glob(f"**/{name}.exe"))
     for candidate in candidates:
         if candidate.is_file():
             return str(candidate)
