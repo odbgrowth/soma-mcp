@@ -91,15 +91,24 @@ def test_destructive_hint_true_for_exactly_update_and_delete():
     assert destructive == DESTRUCTIVE_TOOLS
 
 
+_HINT_KEYS = {"readOnlyHint", "destructiveHint", "idempotentHint", "openWorldHint"}
+
+
+def _hints(annotations: ToolAnnotations) -> dict[str, bool]:
+    """The four hint fields as a camelCase dict, independent of whether the
+    installed mcp version models ToolAnnotations with snake_case attributes
+    (mcp 2.x) or the camelCase names themselves (mcp 1.x, per pyproject's
+    mcp>=1.27.2 floor)."""
+    dumped = annotations.model_dump(by_alias=True, exclude_none=True)
+    return {k: v for k, v in dumped.items() if k in _HINT_KEYS}
+
+
 @pytest.mark.parametrize("tool", sorted(ANNOTATIONS))
 def test_annotations_validate_as_tool_annotations(tool):
     fields = ANNOTATIONS[tool]
-    assert set(fields) == {"readOnlyHint", "destructiveHint", "idempotentHint", "openWorldHint"}
+    assert set(fields) == _HINT_KEYS
     annotations = ToolAnnotations(**fields)
-    assert annotations.read_only_hint == fields["readOnlyHint"]
-    assert annotations.destructive_hint == fields["destructiveHint"]
-    assert annotations.idempotent_hint == fields["idempotentHint"]
-    assert annotations.open_world_hint == fields["openWorldHint"]
+    assert _hints(annotations) == fields
 
 
 def test_server_instructions_and_tool_annotations_match(monkeypatch):
@@ -115,7 +124,4 @@ def test_server_instructions_and_tool_annotations_match(monkeypatch):
     for name, expected in ANNOTATIONS.items():
         actual = by_name[name]
         assert actual is not None, f"{name} has no annotations"
-        assert actual.read_only_hint == expected["readOnlyHint"]
-        assert actual.destructive_hint == expected["destructiveHint"]
-        assert actual.idempotent_hint == expected["idempotentHint"]
-        assert actual.open_world_hint == expected["openWorldHint"]
+        assert _hints(actual) == expected
