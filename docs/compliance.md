@@ -33,6 +33,7 @@ work.
 | Protocol version negotiation (`protocolVersion`) | ✅ | Negotiated by the SDK. SOMA does not pin a single revision (see §6, Roadmap). |
 | Capability negotiation (`capabilities`) | ✅ | SOMA advertises `tools` only — see §3. |
 | `serverInfo` (name, version) | ✅ | Server name is `"SOMA"` (`FastMCP("SOMA", ...)`). A pinned semantic `version` string is a roadmap item (§6). |
+| `instructions` (`InitializeResult`) | ✅ | `FastMCP("SOMA", instructions=...)` sets server-level instructions covering tool choice, write vs. correct vs. feedback, the two-step delete, and the memory-as-data trust rule. Client behavior differs here: some clients (e.g. Claude Code) inject `instructions` into the model's context automatically, others do not always surface it, so the critical rules also live in the individual tool docstrings, not only here. See [`tools.md`](tools.md). |
 | Error objects (code, message, data) | ✅ | SDK-standard JSON-RPC errors. Tool-level failures are returned as structured result dicts with a `fout` (error) field rather than thrown — see §4. |
 
 ## 2. Transport
@@ -68,7 +69,7 @@ work.
 | `tools/call` execution | ✅ | Each tool delegates to `soma_mcp_kern` (the API-free, unit-tested kernel). |
 | JSON Schema input validation | ✅ | FastMCP validates arguments against the derived schema. |
 | Structured output / `outputSchema` | ◻️ | Tools return JSON-serializable dicts/lists (structured content), but SOMA does not yet declare explicit `outputSchema` per tool. A tightening opportunity (§6). |
-| Tool annotations (`readOnlyHint`, `destructiveHint`, etc.) | 🚧 | Not yet declared. `soma_delete`/`soma_update`/`soma_write` are natural `destructiveHint`/non-read-only candidates; the read tools are `readOnlyHint: true`. Adding these improves client UX and is low effort. |
+| Tool annotations (`readOnlyHint`, `destructiveHint`, `idempotentHint`, `openWorldHint`) | ✅ | Declared per tool via `@mcp.tool(annotations=...)`. The four read tools and `soma_whoami` are `readOnlyHint: true`; `soma_update`/`soma_delete` are `destructiveHint: true` and `idempotentHint: true`; `soma_write`/`soma_feedback` are non-read-only, non-destructive and non-idempotent. All are `openWorldHint: false` (a closed, self-hosted memory, not an open external system). See [`instructions.py`](../src/soma_mcp/instructions.py) and [`tools.md`](tools.md). |
 | Error signaling | ✅ (variant) | SOMA returns errors as a result payload with a `fout` field (e.g. access denied, rate-limited, validation) instead of raising protocol errors. This is intentional: it lets the calling model *read and react to* the reason. Unexpected exceptions are masked (`mask_error_details=True`) so internal tracebacks never leak. |
 
 ## 5. Authentication & authorization
@@ -92,19 +93,16 @@ posture. None are protocol-correctness defects.
 2. **Declare the negotiated protocol revision explicitly** and document the
    supported range, then add it to the release checklist when the SDK bumps it.
    *(small)*
-3. **Add tool annotations** (`readOnlyHint` on the read tools; `destructiveHint`
-   / non-idempotent hints on `soma_write`/`soma_update`/`soma_delete`). *(small,
-   improves client UX and safety prompting)*
-4. **Declare `outputSchema` per tool** to make structured outputs first-class.
+3. **Declare `outputSchema` per tool** to make structured outputs first-class.
    *(medium)*
-5. **Conformance testing against the official clients** — a smoke matrix
+4. **Conformance testing against the official clients** — a smoke matrix
    (Claude, ChatGPT, Cursor/VS Code, MCP Inspector) asserting handshake,
    `tools/list` and a representative `tools/call`. *(medium — see Phase 3 of the
    project plan)*
-6. **Optional `resources` view** — a read-only, paginated surface over recent /
+5. **Optional `resources` view** — a read-only, paginated surface over recent /
    pinned notes for clients that prefer browsing to querying. *(larger;
    evaluate demand first)*
-7. **Track the 2026-07-28 revision** once it ships (feature-lifecycle and
+6. **Track the 2026-07-28 revision** once it ships (feature-lifecycle and
    extensions framework) and decide which, if any, extensions to adopt. *(watch)*
 
 ## 7. Verdict
