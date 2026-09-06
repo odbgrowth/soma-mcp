@@ -134,3 +134,28 @@ feedback log — **not** to memory (use `soma_write` only for facts). `oordeel`
 | Record whether an answer was good | `soma_feedback` |
 | Inspect retrieval stages | `soma_debug` |
 | Find your own subject id | `soma_whoami` |
+
+---
+
+## Server instructions and annotations
+
+Beyond the nine tool descriptions above, the reference server sets FastMCP's
+`instructions=` (surfaced to clients as `InitializeResult.instructions`) with the
+cross-tool rules no single tool docstring can carry alone: which tool to pick,
+write vs. correct vs. feedback, the two-step delete, memory as untrusted data,
+and what to do on an access error. Each tool also carries explicit annotations
+(`readOnlyHint`, `destructiveHint`, `idempotentHint`, `openWorldHint`): the four
+read tools and `soma_whoami` are read-only; `soma_update`/`soma_delete` are
+destructive and idempotent; `soma_write`/`soma_feedback` are neither read-only
+nor destructive nor idempotent.
+
+Both live in [`src/soma_mcp/instructions.py`](../src/soma_mcp/instructions.py):
+`TEXT`/`build_instructions()` for the instructions, `ANNOTATIONS` for the
+per-tool hints, `GROUPS` for how the nine tools are classified. A dedicated test
+(`tests/test_instructions.py`) is a drift guard: it fails if a tool is added to
+`server.py` without a matching entry there, or if a tool name goes unmentioned
+in `TEXT`.
+
+Client behavior around `instructions` varies: some clients inject it into the
+model's context automatically, others do not always surface it, which is why
+the same rules are also woven into the individual tool docstrings.

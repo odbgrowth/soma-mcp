@@ -21,6 +21,7 @@ import os
 from fastmcp import FastMCP
 
 from .engine import Engine, InMemoryEngine
+from .instructions import ANNOTATIONS, build_instructions
 from .kernel import Kernel
 
 log = logging.getLogger("soma_mcp")
@@ -77,7 +78,11 @@ def build_server(engine: Engine | None = None) -> FastMCP:
     # mask_error_details=True: unexpected exceptions return a generic message
     # instead of an internal traceback (which could leak paths, queries or memory
     # fragments). Explicitly raised ToolError messages still pass through.
-    mcp = FastMCP("SOMA", auth=_build_auth(), mask_error_details=True)
+    # instructions= is surfaced as InitializeResult.instructions; clients treat it
+    # differently (some inject it into the model's context, some don't), so the
+    # rules that matter also live in the individual tool docstrings below.
+    mcp = FastMCP("SOMA", instructions=build_instructions(),
+                  auth=_build_auth(), mask_error_details=True)
 
     def _subject():
         """Subject of the current token (or None when unauthenticated)."""
@@ -88,23 +93,23 @@ def build_server(engine: Engine | None = None) -> FastMCP:
             return None
         return getattr(token, "subject", None) or (token.claims or {}).get("sub")
 
-    @mcp.tool
+    @mcp.tool(annotations=ANNOTATIONS["soma_search"])
     def soma_search(query: str, limit: int = 15) -> list[dict]:
         """Search SOMA memory. Returns filtered chunks with metadata."""
         return kernel.search(_subject(), query, limit)
 
-    @mcp.tool
+    @mcp.tool(annotations=ANNOTATIONS["soma_get"])
     def soma_get(id: str) -> dict:
         """Fetch one chunk from SOMA by id."""
         return kernel.get(_subject(), id)
 
-    @mcp.tool
+    @mcp.tool(annotations=ANNOTATIONS["soma_debug"])
     def soma_debug(query: str, limit: int = 25) -> dict:
         """Diagnostics: retrieval per stage. Stage 1 = raw search, stage 2 =
         after relevance filtering. limit bounds both lists."""
         return kernel.debug(_subject(), query, limit)
 
-    @mcp.tool
+    @mcp.tool(annotations=ANNOTATIONS["soma_context"])
     def soma_context(question: str, max_tokens: int = 30000, deep: bool = False) -> dict:
         """Full retrieval pipeline for a question: decomposition into sub-questions,
         health aggregation, type-pull on list questions and relevance filtering —
@@ -115,7 +120,7 @@ def build_server(engine: Engine | None = None) -> FastMCP:
         when the normal answer looks incomplete (slower; finds what round one missed)."""
         return kernel.context(_subject(), question, max_tokens, deep)
 
-    @mcp.tool
+    @mcp.tool(annotations=ANNOTATIONS["soma_whoami"])
     def soma_whoami() -> dict:
         """Identity of the current token: subject, client and scopes. Use the
         subject to configure MCP_TOEGANG_SUBJECTS (instance owner) or
@@ -129,21 +134,21 @@ def build_server(engine: Engine | None = None) -> FastMCP:
         return {"subject": getattr(t, "subject", None) or (t.claims or {}).get("sub"),
                 "client_id": t.client_id, "scopes": t.scopes, "expires_at": str(t.expires_at)}
 
-    @mcp.tool
+    @mcp.tool(annotations=ANNOTATIONS["soma_write"])
     def soma_write(text: str) -> dict:
         """Add a new note to SOMA. Returns the number of chunks stored. Only for
         facts/memories — feedback goes via soma_feedback, and correcting an
         existing note via soma_update (prevents duplicates)."""
         return kernel.write(_subject(), text)
 
-    @mcp.tool
+    @mcp.tool(annotations=ANNOTATIONS["soma_update"])
     def soma_update(base_id: str, new_text: str) -> dict:
         """Overwrite an existing note with new text — use this for corrections
         instead of adding another note (prevents duplicates). base_id e.g.
         note-20260608-151003. Chunk ids change."""
         return kernel.update(_subject(), base_id, new_text)
 
-    @mcp.tool
+    @mcp.tool(annotations=ANNOTATIONS["soma_feedback"])
     def soma_feedback(question: str, verdict: str, answer: str = "", comment: str = "",
                       causes: list[str] | None = None,
                       source_ids: list[str] | None = None) -> dict:
@@ -154,7 +159,7 @@ def build_server(engine: Engine | None = None) -> FastMCP:
         return kernel.feedback(_subject(), question, verdict, answer, comment,
                                causes, source_ids)
 
-    @mcp.tool
+    @mcp.tool(annotations=ANNOTATIONS["soma_delete"])
     def soma_delete(base_id: str, confirm: bool = False) -> dict:
         """Delete a note (all its chunks) by base id, e.g. note-20260608-081905.
         Safety valve: without confirm=true you get only a preview — review it with

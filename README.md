@@ -43,6 +43,10 @@ while staying fully compatible with the standard.
 - **Transport:** Streamable HTTP (the current MCP transport) at `/mcp`.
 - **Capability:** `tools` — nine tools (search, get, debug, context, whoami,
   write, update, delete, feedback). A clean, valid subset of the protocol.
+  Server instructions (`InitializeResult.instructions`) carry the cross-tool
+  rules, and every tool declares explicit annotations (`readOnlyHint`,
+  `destructiveHint`, `idempotentHint`, `openWorldHint`); see
+  [`docs/tools.md`](docs/tools.md).
 - **Authorization:** OAuth 2.1 via Auth0, **plus** a fail-closed subject
   allowlist (a valid token is necessary but not sufficient) and a stricter
   allowlist for writes.
