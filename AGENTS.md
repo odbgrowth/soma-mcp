@@ -4,6 +4,9 @@ This is the primary vendor-neutral instruction layer for Claude Code, Codex, and
 workers. Read `PROJECT.yaml`, `CURRENT_TASK.md`, `ARCHITECTURE.md`, and `DECISIONS.md`
 before non-trivial work.
 
+Accumulated project knowledge (lessons, decisions, pitfalls): `docs/agent-knowledge.md`.
+Read it for non-trivial work.
+
 - Never read, print, or commit secret values, OAuth tokens, private keys, token stores,
   audit data, tenant data, or real `.env` files.
 - Never work directly on `main`; concurrent agents use separate branches and worktrees.
