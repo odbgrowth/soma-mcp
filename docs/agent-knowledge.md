@@ -23,10 +23,6 @@ kennis die hier veilig te delen is staat in dit bestand.
 - **Gedeelde JSON-statebestanden van een draaiende service.** Schrijf ze alleen met hetzelfde
   atomaire schrijfpatroon plus `flock` als de applicatie zelf; overschrijf ze niet direct, want de
   service kan er tegelijk naar schrijven.
-- **Verwijderscripts en gedeelde identiteit.** Een verwijderscript dat externe identiteiten
-  (Auth0-gebruikers) opruimt moet eerst controleren of die identiteit nog door een andere, levende
-  tenant wordt gebruikt. Bij ontbreken van die controle: niet draaien op een handle waarvan het
-  subject gedeeld kan zijn (gevonden 26 augustus 2026; de details staan in de privé-repo).
 - **Anthropic-workspace spend-limits** zijn niet via een API te lezen of te zetten (gecontroleerd
   tegen de docs op 26 augustus 2026); een spend-cap is handmatige attestatie, geen automatische
   afdwinging.
