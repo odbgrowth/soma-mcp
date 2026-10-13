@@ -1,108 +1,114 @@
-# SOMA MCP — Implementation Specification
+# SOMA MCP implementation specification
 
-This document describes SOMA MCP's concrete protocol surface and how it maps onto
-the official Model Context Protocol (revision **2025-11-25**). For the gap
-analysis, see [`compliance.md`](compliance.md); for tool details, see
-[`tools.md`](tools.md).
+SOMA MCP's concrete protocol surface and how it maps onto the official Model
+Context Protocol, revision **2026-07-28**. Gap analysis and test evidence:
+[`compliance.md`](compliance.md). Tool reference: [`tools.md`](tools.md).
 
 ## 1. Stack
 
 | Layer | Choice |
 |---|---|
-| Protocol | Model Context Protocol, JSON-RPC 2.0 |
-| Framework | [FastMCP](https://github.com/jlowin/fastmcp) `>=3.4.2` on `mcp >=1.27.2` |
-| Transport | Streamable HTTP, served at `/mcp` on port `8000` |
-| Authorization | OAuth 2.1 via `Auth0Provider` |
-| Server name | `SOMA` |
-| Capabilities advertised | `tools` |
+| Protocol | MCP **2026-07-28**; handshake revisions 2024-11-05, 2025-03-26, 2025-06-18, 2025-11-25 for older clients |
+| Framing | JSON-RPC 2.0 |
+| Framework | [FastMCP](https://github.com/PrefectHQ/fastmcp) `>=4.1,<5` on the [MCP Python SDK](https://github.com/modelcontextprotocol/python-sdk) `>=2.3,<3` |
+| Transport | Streamable HTTP at `/mcp`, default port `8000` |
+| Authorization | OAuth 2.1 through Auth0 (`Auth0Provider`), optional for local use |
+| Server identity | `serverInfo.name` = `SOMA`, `serverInfo.version` = `soma_mcp.__version__` |
+| Capabilities | `tools` |
 
-The protocol machinery (framing, handshake, negotiation, tool discovery, auth
-metadata) is provided by FastMCP / the `mcp` SDK. SOMA's own code is the thin
-transport shell (`soma_mcp.py`) plus the tool kernel (`soma_mcp_kern.py`).
+The protocol machinery (framing, era negotiation, discovery, schemas,
+validation, OAuth metadata) is provided by FastMCP and the SDK. SOMA's code is
+the transport shell (`server.py`), its configuration (`config.py`) and the tool
+kernel (`kernel.py`).
 
 ## 2. Transport
 
-SOMA serves **Streamable HTTP**:
-
-```python
-mcp.run(transport="http", host="0.0.0.0", port=8000)
+```bash
+soma-mcp    # mcp.run(transport="http", host=..., port=..., host_origin_protection=...)
 ```
 
-- Endpoint path: `/mcp`.
-- Production base URL: behind a Cloudflare Tunnel, e.g.
-  `https://soma.usesiva.net/mcp`. TLS terminates at the tunnel; the container
-  port is not publicly exposed.
-- This is the current transport (it superseded HTTP+SSE in the 2025-03-26
-  revision). stdio is intentionally not offered — SOMA is a long-running
-  networked server, not a subprocess.
+- Endpoint: `/mcp`. Behind a TLS-terminating proxy in production:
+  `https://<your-host>/mcp`.
+- Bind address: `MCP_HOST`/`MCP_PORT`; default `0.0.0.0:8000` with Auth0 and
+  `127.0.0.1:8000` without. The unauthenticated server validates `Host` and
+  `Origin` against DNS rebinding.
+- Streamable HTTP is the current MCP transport. stdio is not offered: SOMA is a
+  long-running networked server, not a subprocess of one client.
 
-## 3. Lifecycle
+## 3. Protocol eras and lifecycle
 
-The `initialize` handshake is performed by the SDK. The client sends its
-supported `protocolVersion`, its `capabilities` and `clientInfo`; SOMA responds
-with the negotiated `protocolVersion`, its server `capabilities` (`tools`) and
-`serverInfo` (name `SOMA`). After `initialized`, the client may call
-`tools/list` and `tools/call`.
+The SDK routes every request by its `MCP-Protocol-Version` header, so both eras
+share one endpoint and SOMA has no era-specific code.
 
-SOMA does not override the handshake. The one startup behaviour worth noting is a
-**cold-start mitigation**: before serving, the server warms the embedding model
-(`soma_core.zoek("warmup")`) so the first real query is fast. Warmup failure is
-non-fatal — the server still serves and falls back to lazy loading.
+**2026-07-28 (modern, sessionless).** The client may call `server/discover`,
+which returns the supported versions, the `tools` capability, the server
+instructions and the server identity. Every request carries
+`io.modelcontextprotocol/protocolVersion` and the client capabilities in `_meta`;
+every result carries `io.modelcontextprotocol/serverInfo` in its `_meta`. There
+is no `initialize`, no `ping` and no `Mcp-Session-Id`.
+
+**Handshake era (2024-11-05 to 2025-11-25).** The client sends `initialize`; the
+server answers with the negotiated `protocolVersion`, `capabilities`,
+`serverInfo` and `instructions`, and mints an `Mcp-Session-Id`. After
+`notifications/initialized` the client calls `tools/list` and `tools/call`.
+
+SOMA's tools need no client capability (no sampling, elicitation or roots), so
+they behave identically in both eras. The FastMCP client and the MCP SDK
+`Client` negotiate the modern era by default; `mode="legacy"` forces the
+handshake.
 
 ## 4. Capabilities
 
-SOMA advertises exactly one server capability: **`tools`**. It does not advertise
-`resources`, `prompts`, `completions` or client-streamed `logging`. All are
-optional in the spec; see [`compliance.md`](compliance.md) §3 for the rationale
-and roadmap.
+SOMA advertises exactly one server capability: **`tools`**. It does not
+advertise `resources`, `prompts`, `completions` or `logging`, all optional. See
+[`compliance.md`](compliance.md) §3.
 
-## 5. Tools surface
+## 5. Tool surface
 
-Nine tools, registered with `@mcp.tool` in `soma_mcp.py`. Input schemas are
-derived from the Python signatures; descriptions are the docstrings the client
-sees.
+Nine tools, registered with `@mcp.tool` in `server.py`. Input schemas come from
+the Python signatures; descriptions are the docstrings; annotations come from
+`instructions.ANNOTATIONS`.
 
-| Tool | Kind | Signature (summary) |
+| Tool | Kind | Signature |
 |---|---|---|
 | `soma_search` | read | `(query: str, limit: int = 15) -> list[dict]` |
 | `soma_get` | read | `(id: str) -> dict` |
 | `soma_debug` | read (diagnostic) | `(query: str, limit: int = 25) -> dict` |
-| `soma_context` | read (full pipeline) | `(vraag: str, max_tekens: int = 30000, diep: bool = False) -> dict` |
-| `soma_whoami` | read (identity) | `() -> dict` |
-| `soma_write` | write | `(tekst: str) -> dict` |
-| `soma_update` | write | `(basis_id: str, nieuwe_tekst: str) -> dict` |
-| `soma_delete` | write (guarded) | `(basis_id: str, bevestig: bool = False) -> dict` |
-| `soma_feedback` | write (log) | `(vraag, oordeel, antwoord?, opmerking?, oorzaken?, bron_ids?) -> dict` |
+| `soma_context` | read (full pipeline) | `(question: str, max_tokens: int = 30000, deep: bool = False) -> dict` |
+| `soma_whoami` | identity | `() -> dict` |
+| `soma_write` | write | `(text: str) -> dict` |
+| `soma_update` | write (destructive) | `(base_id: str, new_text: str) -> dict` |
+| `soma_delete` | write (destructive, two-step) | `(base_id: str, confirm: bool = False) -> dict` |
+| `soma_feedback` | write (log, not memory) | `(question: str, verdict: str, answer: str = "", comment: str = "", causes: list[str] \| None = None, source_ids: list[str] \| None = None) -> dict` |
 
-Full per-tool reference: [`tools.md`](tools.md).
+Annotations travel with `tools/list` under the MCP wire names `readOnlyHint`,
+`destructiveHint`, `idempotentHint` and `openWorldHint` (Python code uses the
+SDK's snake_case attributes). A transport test asserts the wire form.
 
-## 6. Result and error conventions
+## 6. Results and errors
 
-- **Results are JSON-serializable** dicts or lists of dicts (structured content).
-- **Returned text from memory is fenced.** Every memory string the server hands
-  back is prefixed with an explicit data-boundary marker telling the calling
-  model the content is *data, not instructions* — a centralized prompt-injection
-  defense in the kernel (`_omhein`). See [`security.md`](security.md).
-- **Errors are data, not exceptions.** Access denial, rate-limit, and validation
-  failures are returned as a result dict carrying a `fout` (error) field, so the
-  calling model can read the reason and react. This is a deliberate variant of
-  raising protocol errors.
-- **Internal errors are masked.** `FastMCP(..., mask_error_details=True)` ensures
-  unexpected exceptions return a generic message instead of a traceback that
-  could leak paths, queries or memory fragments. Explicit `ToolError` messages
-  still pass through.
+- **Structured results.** Every tool returns a JSON object (a list result is
+  wrapped by FastMCP as `{"result": [...]}`) in `structuredContent`, with the
+  same JSON as text content.
+- **Fenced memory text.** Every memory string carries a data-boundary prefix
+  marking it as data, not instructions. See [`security.md`](security.md) §6.
+- **Denials are data.** Access, rate-limit and validation failures are ordinary
+  results with an `error` field (`isError` stays false), so the calling model
+  can read the reason and react.
+- **Unexpected exceptions are masked.** `mask_error_details=True` returns a
+  generic message with `isError: true`; no traceback reaches the client.
+  Protocol-level failures (unknown method, invalid parameters, unsupported
+  protocol version) are standard JSON-RPC errors produced by the SDK.
 
 ## 7. Authorization model (summary)
 
-OAuth 2.1 via Auth0 establishes *who* is calling (the token `subject`). SOMA then
-applies its own allowlist guards on top of every call:
+OAuth 2.1 establishes who is calling (the token subject). The kernel then
+applies:
 
-- Read/general access requires the subject to be in `MCP_TOEGANG_SUBJECTS`.
-- Write tools additionally require `MCP_SCHRIJF_SUBJECTS`.
-- **Fail-closed:** if the allowlist is unset and `MCP_SINGLE_USER != 1`, all
-  access is denied.
-- A per-subject sliding-window rate limit (`MCP_RATE_LIMIT`, default 30/min)
-  applies to every tool.
+- `MCP_TOEGANG_SUBJECTS` for every tool except `soma_whoami`;
+- `MCP_SCHRIJF_SUBJECTS` additionally for the write tools;
+- fail closed when an allowlist is missing, unless `MCP_SINGLE_USER=1`;
+- a per-subject sliding-window rate limit (`MCP_RATE_LIMIT`, default 30/min).
 
 Details: [`auth.md`](auth.md).
 
@@ -110,18 +116,22 @@ Details: [`auth.md`](auth.md).
 
 | Variable | Purpose |
 |---|---|
-| `AUTH0_CONFIG_URL`, `AUTH0_CLIENT_ID`, `AUTH0_CLIENT_SECRET`, `AUTH0_AUDIENCE` | Auth0 OAuth provider configuration. |
-| `BASE_URL` | Public base URL used in OAuth metadata/redirects. |
-| `MCP_TOEGANG_SUBJECTS` | Comma-separated allowlist of subjects permitted to use the instance. |
-| `MCP_SCHRIJF_SUBJECTS` | Comma-separated allowlist of subjects permitted to write. |
-| `MCP_SINGLE_USER` | `1` to run intentionally without an allowlist (single-user). Otherwise guards fail closed. |
+| `AUTH0_CONFIG_URL`, `AUTH0_CLIENT_ID`, `AUTH0_CLIENT_SECRET`, `AUTH0_AUDIENCE`, `BASE_URL` | Auth0 OAuth configuration. All or none; partial sets refuse to start. |
+| `MCP_TOEGANG_SUBJECTS` | Comma-separated subjects allowed to use the instance. |
+| `MCP_SCHRIJF_SUBJECTS` | Comma-separated subjects allowed to write. |
+| `MCP_SINGLE_USER` | `1` to run deliberately without an allowlist. |
 | `MCP_RATE_LIMIT` | Calls per minute per subject (default `30`; `0` disables). |
-| `MCP_JWT_SIGNING_KEY`, `MCP_STORAGE_ENCRYPTION_KEY` | Enable Fernet-encrypted persistent token storage (no reconnect after rebuilds). |
-| `SOMA_DATA` | Data volume path (token store, audit log). |
+| `MCP_JWT_SIGNING_KEY`, `MCP_STORAGE_ENCRYPTION_KEY` | Both or neither: encrypted, persistent OAuth state in `$SOMA_DATA/mcp_oauth/`. |
+| `MCP_HOST`, `MCP_PORT` | Bind address; defaults depend on whether Auth0 is configured. |
+| `SOMA_DATA` | Data directory (token store, audit log). Defaults to the working directory. |
 
 ## 9. Versioning
 
-SOMA tracks the official spec revision negotiated by the SDK (currently
-2025-11-25). Pinning an explicit `serverInfo.version` and documenting the
-supported revision range are tracked roadmap items in
-[`compliance.md`](compliance.md) §6.
+- **SOMA MCP version:** `soma_mcp.__version__` is the single source. It is the
+  package version, `serverInfo.version`, the first word of `soma-mcp --version`,
+  and the release tag `v{version}`.
+- **Protocol revision:** negotiated per request by the MCP SDK. `soma-mcp
+  --version` prints the revisions the installed SDK serves.
+- **Framework ranges:** in `pyproject.toml`, bounded below the next major.
+
+Release process: [`RELEASE.md`](../RELEASE.md).

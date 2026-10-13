@@ -1,117 +1,128 @@
 # Architecture
 
-How SOMA MCP is built, and how it sits in front of the SOMA retrieval engine.
-The guiding principle is a **private instance**: one person's memory, one
-deployment, one set of keys.
+How SOMA MCP is built. The guiding principle is a **private instance**: one
+person's memory, one deployment, one set of keys.
 
-## 1. The shell / kernel split
+## 1. Shell, kernel, engine
 
-SOMA MCP is two files with a strict separation of concerns:
-
-```
-soma_mcp.py        — transport shell: Auth0 setup, resolve token subject,
-                     register the 9 tools on FastMCP. Thin by design;
-                     nothing here deserves a unit test.
-
-soma_mcp_kern.py   — tool logic: guards, validation, execution, result shaping.
-                     FastMCP-free, so every handler is unit-testable without an
-                     Auth0 environment (tests/test_mcp_kern.py).
-```
-
-The shell is *dumb*; the kernel is *covered*. Each `@mcp.tool` function does one
-thing — resolve the subject from the access token and delegate to a `kern_*`
-function with that subject as an explicit parameter. Because the subject is a
-parameter (not pulled from request context inside the kernel), the guards and
-handlers test cleanly with no protocol or auth machinery.
-
-```
-client ──HTTP/JSON-RPC──▶ FastMCP ──▶ @mcp.tool (shell) ──▶ kern_* (kernel)
-                            │             │                     │
-                       handshake,    resolve subject       guards → validate
-                       auth, schema   from access token     → execute → shape
+```text
+                 MCP client (Claude, ChatGPT, IDE, SDK agent)
+                                   │  JSON-RPC 2.0, Streamable HTTP, /mcp
+                                   ▼
+   server.py   FastMCP shell: protocol eras, OAuth (Auth0), token subject,
+               tool registration, error masking, bind and DNS-rebinding defaults
+                                   │  subject + validated arguments
+                                   ▼
+   kernel.py   tool logic: rate limit, allowlists, validation, prompt-injection
+               fence, two-step delete, audit (guard.py), result shaping
+                                   │
+                                   ▼
+   engine.py   Engine protocol: search, filter, get, context, notes, feedback
+               (InMemoryEngine here; your retrieval stack in production)
 ```
 
-## 2. The shared pipeline
-
-The kernel does **not** reimplement retrieval. It calls the same engine the
-Streamlit UI uses:
-
-- `soma_core.zoek` — vector search (pgvector) returning a candidate pool.
-- `soma_core.filter_chunks_met_haiku` — relevance filtering via a forced Haiku
-  tool-call.
-- `soma_orkest.verzamel_context` — the full orchestration: sub-question
-  decomposition, health aggregation, type-pull on list questions, optional
-  deep-search round.
-- `soma_notes` — note write / update / delete / fetch.
-- `soma_feedback.log_feedback` — dogfood feedback log (feeds `/autotune`).
-
-**Architecture rule:** everything below `soma_app.py` is Streamlit-free. The UI
-and the MCP share the entire pipeline through `soma_orkest.verzamel_context`, so
-an answer to the same question is identical whether it came from the web UI or
-from an agent over MCP. The MCP is not a second-class path — it is the path the
-owner actually uses (the Streamlit UI is effectively unused; tunnel traffic goes
-to `/mcp`).
-
-## 3. Tool-to-engine mapping
-
-| Tool | Kernel handler | Engine call |
+| Module | Responsibility | Depends on FastMCP |
 |---|---|---|
-| `soma_search` | `kern_search` | `zoek` + `filter_chunks_met_haiku` |
-| `soma_get` | `kern_get` | `collection.get` |
-| `soma_debug` | `kern_debug` | `zoek` + `filter_chunks_met_haiku` (both stages exposed) |
-| `soma_context` | `kern_context` | `soma_orkest.verzamel_context` (full pipeline, optional deep search) |
-| `soma_whoami` | (shell only) | reads the access token claims |
-| `soma_write` | `kern_write` | `soma_notes.voeg_note_toe` |
-| `soma_update` | `kern_update` | `soma_notes.update_note` |
-| `soma_delete` | `kern_delete` | `soma_notes.verwijder_note` |
-| `soma_feedback` | `kern_feedback` | `soma_feedback.log_feedback` |
+| `server.py` | Transport shell. Builds the `FastMCP` server, wires Auth0 and the encrypted token store, resolves the token subject, registers the nine tools, runs the HTTP transport. | yes |
+| `config.py` | Reads and validates every environment setting that affects authentication, token storage and the bind address. Fails closed. | no |
+| `kernel.py` | All tool behavior, with the subject as an explicit parameter. | no |
+| `guard.py` | Sliding-window rate limit and the JSONL audit log. | no |
+| `engine.py` | The `Engine` protocol and the dependency-free `InMemoryEngine`. | no |
+| `instructions.py` | Server instructions and the per-tool annotations, with a drift test. | no (uses `mcp.types`) |
 
-## 4. Cross-cutting guards
+The shell is deliberately thin: each `@mcp.tool` function resolves the subject
+from the access token and calls one kernel method. Because the subject is a
+parameter, not ambient request state, the security-critical logic is unit-tested
+without any protocol or auth machinery (`tests/test_kernel.py`). The shell itself
+is covered by transport tests (`tests/test_transport.py`) that drive it through
+the official clients on both protocol eras.
 
-Three concerns are enforced centrally, not per tool:
+## 2. Tools and engine calls
 
-- **Access guards** (`soma_mcp_kern`): every read passes `toegang(subject)`;
-  every write passes `schrijfrecht(subject)`. Fail-closed.
-- **Rate limiting & audit** (`soma_guard`): a sliding-window per-subject rate
-  limit on every call, and a JSONL audit line per *write* action
-  (`mcp_audit.jsonl` on the data volume). The module has no FastMCP import, so
-  it is unit-testable in isolation.
-- **Data-boundary fencing** (`soma_mcp_kern._omhein`): every memory string the
-  server returns is wrapped with an explicit "this is data, not instructions"
-  marker — a single choke point so no read tool can bypass it.
+| Tool | Kernel method | Engine calls |
+|---|---|---|
+| `soma_search` | `search` | `search` + `filter_relevant` |
+| `soma_get` | `get` | `get_chunk` |
+| `soma_debug` | `debug` | `search` + `filter_relevant` (both stages returned) |
+| `soma_context` | `context` | `assemble_context` (the full pipeline, optional deep round) |
+| `soma_whoami` | (shell only) | none, reads the access token |
+| `soma_write` | `write` | `add_note` |
+| `soma_update` | `update` | `full_note` + `update_note` |
+| `soma_delete` | `delete` | `full_note` + `delete_note` |
+| `soma_feedback` | `feedback` | `log_feedback` |
 
-See [`security.md`](security.md) for the threat model these implement.
+A production engine typically backs these with vector search, an LLM relevance
+filter and a multi-step orchestration; the kernel does not care. Keeping the
+same engine behind a web UI and the MCP server means both answer a question the
+same way.
 
-## 5. Deployment topology
+## 3. Cross-cutting guards
 
-SOMA MCP runs as a container in the SOMA deployment:
+Enforced centrally in the kernel, never per tool:
 
-- **Production:** container `soma-mcp` on port `8000`, alongside the UI container
-  `soma` (`:8501`). Staging mirrors this (`soma-mcp-staging` `:8001`), and a demo
-  tenant runs `soma-mcp-demo` (`:8010`, from `tenants/voorbeeld/`).
-- **Public access:** via Cloudflare Tunnel (`soma.usesiva.net`,
-  `demo.usesiva.net`). The MCP port is never exposed directly; TLS terminates at
-  the tunnel.
-- **Non-root containers:** the containers run as a non-root uid aligned to the
-  data-volume owner, so bind-mount writes keep working.
-- **Token persistence:** OAuth tokens live in a Fernet-encrypted `DiskStore` on
-  the data volume, so a rebuild needs no connector reconnect.
-- **Cold-start mitigation:** the server preloads the embedding model at startup;
-  `deploy_prod.sh` polls for readiness instead of sleeping.
+- **Access** (`subject_check`): every tool except `soma_whoami` requires the
+  subject in `MCP_TOEGANG_SUBJECTS`; writes also require `MCP_SCHRIJF_SUBJECTS`.
+  Fail closed unless `MCP_SINGLE_USER=1`.
+- **Rate limit and audit** (`guard.py`): per-subject sliding window on every
+  call; one JSONL line per write action in `$SOMA_DATA/mcp_audit.jsonl`.
+- **Data-boundary fence** (`_fence`): every memory string is prefixed with a
+  marker that it is data, not instructions.
 
-Deploys go *only* through the deploy straat (`tools/deploy_staging.sh`,
-`tools/deploy_prod.sh`), never a manual `compose up` on prod. `deploy_prod.sh`
-refuses if the checkout differs from `origin/main`, runs a smoke test (containers
-up, UI `:8501`, MCP `:8000`, retrieval gold-color in-container) and tags a
-release on success.
+And in the shell:
 
-## 6. Why this shape
+- **Error masking:** `FastMCP(..., mask_error_details=True)`.
+- **Fail-closed configuration** (`config.py`): partial Auth0 or storage settings
+  stop startup.
+- **Network exposure:** loopback bind and Host/Origin validation when
+  unauthenticated.
 
-- **Sovereignty:** one instance per memory, self-hosted, behind your own tunnel
-  and keys. No shared backend.
-- **Compatibility:** the protocol layer is the reference stack (FastMCP/`mcp`),
-  so off-the-shelf clients work without bespoke glue.
-- **Testability:** the FastMCP-free kernel and guard modules mean the security-
-  critical logic is covered without standing up an auth environment.
-- **Single source of truth:** UI and MCP answer from the same pipeline, so there
-  is no drift between "what the app says" and "what the agent says".
+See [`security.md`](security.md) for the threat model.
+
+## 4. Protocol eras
+
+FastMCP 4 on the MCP Python SDK v2 serves both protocol eras from one endpoint.
+A 2026-07-28 client calls `server/discover` and sends protocol metadata with
+every request; no session exists. A handshake-era client (2024-11-05 to
+2025-11-25) sends `initialize` and receives an `Mcp-Session-Id`. The SDK routes
+each request by its `MCP-Protocol-Version` header. SOMA's tools need nothing from
+the client (no sampling, elicitation or roots), so they behave identically in
+both eras. Details: [`specification.md`](specification.md).
+
+## 5. Deployment shape
+
+A typical self-hosted deployment, kept generic on purpose:
+
+- the server runs as a non-root container or service, listening on
+  `0.0.0.0:8000` inside a private network;
+- a TLS-terminating reverse proxy or tunnel is the only public entry; the
+  container port is never published directly;
+- `SOMA_DATA` is a persistent volume owned by the service user, holding the
+  encrypted OAuth store (`mcp_oauth/`) and the audit log;
+- secrets (`AUTH0_CLIENT_SECRET`, `MCP_JWT_SIGNING_KEY`,
+  `MCP_STORAGE_ENCRYPTION_KEY`) come from the platform's secret store, never
+  from Git;
+- legacy (handshake-era) clients hold sessions in process memory, so more than
+  one worker needs sticky routing; 2026-07-28 clients do not.
+
+## 6. Releases versus deployments
+
+This public repository **releases**; it does not **deploy**.
+
+- **Public reference release** (here): a reviewed PR, green CI, an annotated
+  tag `vX.Y.Z` approved by Onno, and the tag-triggered workflow that builds,
+  attests and publishes a GitHub Release. See [`RELEASE.md`](../RELEASE.md).
+- **Private SOMA production deployment** (elsewhere): the production system
+  consumes a released version through its own private delivery pipeline, with
+  its own approvals, smoke tests and rollback. Its scripts, hosts and topology
+  are intentionally not part of this repository.
+
+## 7. Why this shape
+
+- **Sovereignty:** one instance per memory, self-hosted, your own keys.
+- **Compatibility:** the protocol layer is the official stack (FastMCP and the
+  MCP Python SDK), so off-the-shelf clients work without glue.
+- **Testability:** the FastMCP-free kernel, guard and config modules carry the
+  security-critical logic and are fully unit-tested; transport tests cover the
+  shell.
+- **Replaceable engine:** the same tools, guards and fence in front of any
+  retrieval stack that implements `Engine`.

@@ -1,115 +1,115 @@
-# MCP Compliance Overview
+# MCP compliance overview
 
-This document compares SOMA MCP against the **official Model Context Protocol
-specification**, revision **2025-11-25** (the current stable revision; release
-candidate **2026-07-28** is in draft). It is deliberately honest: it states what
-is already compliant, what is a *deliberate subset*, and what is genuinely open
-work.
+SOMA MCP against the official Model Context Protocol, revision **2026-07-28**,
+with the older handshake revisions it also serves. This page separates what
+SOMA's own CI **tests**, what it **delegates** to FastMCP and the MCP Python
+SDK, what it **leaves out on purpose**, and what is **roadmap**.
 
-> **TL;DR** — SOMA MCP is built on [FastMCP](https://github.com/jlowin/fastmcp)
-> (`fastmcp>=3.4.2`, `mcp>=1.27.2`), so the wire protocol — JSON-RPC 2.0,
-> Streamable HTTP, the initialize handshake, capability negotiation, tool
-> discovery and OAuth 2.1 — is handled by the reference Python stack and is
-> compliant by construction. SOMA's own surface is a **`tools`-only** server: a
-> valid, minimal profile of the protocol. The gaps that remain are *optional*
-> protocol features (resources, prompts, completions) and *productization*
-> (version pinning, conformance testing), not core-protocol defects.
+> **Summary.** SOMA MCP implements a tested, tools-only MCP profile on the
+> official stack (FastMCP `>=4.1,<5`, MCP Python SDK `>=2.3,<3`). Its CI drives
+> the server through the official clients on both protocol eras and runs the
+> applicable scenarios of the official MCP conformance suite. It does not claim
+> full conformance: resources, prompts, completions and logging are not
+> implemented, and protocol mechanics SOMA does not touch are delegated to the
+> SDK.
 
-## How to read the status column
+## Status legend
 
-- ✅ **Compliant** — implemented and conformant, mostly via the FastMCP/SDK layer.
-- ◻️ **Deliberate subset** — the spec makes this optional; SOMA intentionally does
-  not implement it. Not a defect.
-- 🚧 **Roadmap** — worth doing to strengthen the "official" posture; tracked below.
-
----
+- **Tested**: covered by this repository's CI (pytest or the conformance job).
+- **Delegated**: provided by FastMCP / the MCP SDK; SOMA neither overrides nor
+  independently tests it beyond the smoke paths.
+- **Not implemented (optional)**: optional in the specification; deliberately
+  absent.
+- **Roadmap**: worth doing; listed in §7.
 
 ## 1. Base protocol
 
-| Requirement (2025-11-25) | Status | Notes |
+| Requirement | Status | Evidence / notes |
 |---|---|---|
-| JSON-RPC 2.0 message framing | ✅ | Provided by `mcp`/FastMCP. Requests, responses, notifications and batching follow the SDK. |
-| Stateful session with `initialize` handshake | ✅ | FastMCP performs the handshake; SOMA does not override it. |
-| Protocol version negotiation (`protocolVersion`) | ✅ | Negotiated by the SDK. SOMA does not pin a single revision (see §6, Roadmap). |
-| Capability negotiation (`capabilities`) | ✅ | SOMA advertises `tools` only — see §3. |
-| `serverInfo` (name, version) | ✅ | Server name is `"SOMA"` (`FastMCP("SOMA", ...)`). A pinned semantic `version` string is a roadmap item (§6). |
-| `instructions` (`InitializeResult`) | ✅ | `FastMCP("SOMA", instructions=...)` sets server-level instructions covering tool choice, write vs. correct vs. feedback, the two-step delete, and the memory-as-data trust rule. Client behavior differs here: some clients (e.g. Claude Code) inject `instructions` into the model's context automatically, others do not always surface it, so the critical rules also live in the individual tool docstrings, not only here. See [`tools.md`](tools.md). |
-| Error objects (code, message, data) | ✅ | SDK-standard JSON-RPC errors. Tool-level failures are returned as structured result dicts with a `fout` (error) field rather than thrown — see §4. |
+| JSON-RPC 2.0 framing | Delegated | SDK. Wire validity checked by the conformance suite's `wire-schema-valid` check. |
+| 2026-07-28: `server/discover`, per-request `_meta`, no sessions | Tested | `tests/test_transport.py` (modern client, in memory and over HTTP); conformance `server-stateless` at 2026-07-28 (23 of 25 checks; 2 baselined, see §6). |
+| Handshake era: `initialize` lifecycle (2024-11-05 to 2025-11-25) | Tested | `tests/test_transport.py` with `mode="legacy"`; conformance `server-initialize`, `ping`. |
+| Protocol version negotiation and `UnsupportedProtocolVersionError` | Tested (via conformance) | `server-stateless` checks; SOMA does not pin a revision. |
+| `serverInfo` (name, version) | Tested | `SOMA` and `soma_mcp.__version__`, asserted on both eras and over HTTP. |
+| `instructions` | Tested | `DiscoverResult` / `InitializeResult`; asserted equal to `build_instructions()`. Clients differ in whether they show it to the model, so the critical rules are repeated in the tool descriptions. |
+| Error objects | Delegated (protocol) / Tested (tools) | Protocol errors come from the SDK. Tool denials are results with an `error` field; masked internal errors are tested. |
 
 ## 2. Transport
 
 | Requirement | Status | Notes |
 |---|---|---|
-| Streamable HTTP transport | ✅ | `mcp.run(transport="http", host="0.0.0.0", port=8000)` serves Streamable HTTP at `/mcp`. This is the current transport (it superseded the old HTTP+SSE transport in the 2025-03-26 revision). |
-| stdio transport | ◻️ | Not used. SOMA is a long-running networked server reached over a Cloudflare Tunnel, not a locally-spawned subprocess. stdio is optional and not meaningful for this deployment. |
-| TLS / secure origin | ✅ | Public traffic terminates TLS at the Cloudflare Tunnel (`https://soma.usesiva.net/mcp`); the container itself is not exposed directly. |
+| Streamable HTTP | Tested | Real HTTP server on 127.0.0.1 in pytest and in the conformance job. |
+| DNS-rebinding protection (Host/Origin validation) for local servers | Tested | Conformance `dns-rebinding-protection` against the unauthenticated loopback server. |
+| stdio | Not implemented (optional) | SOMA is a long-running networked server. |
+| TLS | Deployment | Terminated by the operator's proxy or tunnel. |
 
 ## 3. Server capabilities
 
 | Capability | Status | Notes |
 |---|---|---|
-| `tools` | ✅ | Nine tools registered via `@mcp.tool`. Input schemas are derived from Python type hints; descriptions come from docstrings. `tools/list` and `tools/call` work out of the box. See [`tools.md`](tools.md). |
-| `tools.listChanged` | ◻️ | SOMA's tool set is static, so it does not emit `notifications/tools/list_changed`. Compliant: the spec only requires the notification if the list actually changes. |
-| `resources` | ◻️ | Not implemented. SOMA's "resources" (memory chunks) are reached *through tools* (`soma_search`, `soma_get`, `soma_context`) because retrieval — not URI enumeration — is the access pattern. A read-only `resources` view of pinned/recent notes is a candidate (§6). |
-| `prompts` | ◻️ | Not implemented. The retrieval prompts live server-side inside the pipeline by design; exposing client-facing prompt templates is a possible future addition. |
-| `completions` | ◻️ | Not implemented (argument autocompletion). Optional; low value for this surface. |
-| `logging` | ◻️ | SOMA logs server-side (`soma_log`) and audits writes (`mcp_audit.jsonl`) rather than streaming `notifications/message` log records to clients. Optional in the spec. |
+| `tools` | Tested | Nine tools; `tools/list` and `tools/call` on both eras; conformance `tools-list` at 2025-11-25 and 2026-07-28. |
+| `listChanged` / `subscriptions/listen` | Not implemented (optional) | The tool set is static. |
+| `resources` | Not implemented (optional) | Memory is reached through retrieval tools, not URI enumeration. |
+| `prompts` | Not implemented (optional) | Retrieval prompts live inside the engine. |
+| `completions` | Not implemented (optional) | Low value for this surface. |
+| `logging` | Not implemented (optional) | Server-side logs and the write audit log instead; the capability is deprecated in 2026-07-28. |
 
-> **Why tools-only is legitimate.** The specification defines `resources`,
-> `prompts`, `completions` and `logging` as *optional* server capabilities. A
-> server advertising only `tools` is fully conformant. SOMA deliberately models
-> a personal memory as a verb surface (search / get / write / correct / audit),
-> which maps cleanly onto tools.
+A server advertising only `tools` is a valid MCP server: every other server
+capability is optional.
 
 ## 4. Tools
 
 | Aspect | Status | Notes |
 |---|---|---|
-| `tools/list` with name, description, `inputSchema` | ✅ | Generated by FastMCP from signatures and docstrings. |
-| `tools/call` execution | ✅ | Each tool delegates to `soma_mcp_kern` (the API-free, unit-tested kernel). |
-| JSON Schema input validation | ✅ | FastMCP validates arguments against the derived schema. |
-| Structured output / `outputSchema` | ◻️ | Tools return JSON-serializable dicts/lists (structured content), but SOMA does not yet declare explicit `outputSchema` per tool. A tightening opportunity (§6). |
-| Tool annotations (`readOnlyHint`, `destructiveHint`, `idempotentHint`, `openWorldHint`) | ✅ | Declared per tool via `@mcp.tool(annotations=...)`. The four read tools and `soma_whoami` are `readOnlyHint: true`; `soma_update`/`soma_delete` are `destructiveHint: true` and `idempotentHint: true`; `soma_write`/`soma_feedback` are non-read-only, non-destructive and non-idempotent. All are `openWorldHint: false` (a closed, self-hosted memory, not an open external system). See [`instructions.py`](../src/soma_mcp/instructions.py) and [`tools.md`](tools.md). |
-| Error signaling | ✅ (variant) | SOMA returns errors as a result payload with a `fout` field (e.g. access denied, rate-limited, validation) instead of raising protocol errors. This is intentional: it lets the calling model *read and react to* the reason. Unexpected exceptions are masked (`mask_error_details=True`) so internal tracebacks never leak. |
+| Name, description, `inputSchema` | Tested | Every schema is `type: object`; tool names match the conformance naming rule. |
+| Argument validation | Delegated | FastMCP validates arguments against the derived schema. |
+| Structured results | Tested | Every tool returns JSON in `structuredContent`; asserted per tool. |
+| Declared `outputSchema` | Roadmap | Results are structured but not yet described by an explicit output schema. |
+| Annotations (`readOnlyHint`, `destructiveHint`, `idempotentHint`, `openWorldHint`) | Tested | All four explicit for every tool; the wire bytes are asserted to use the camelCase names. |
+| Error signaling | Tested | Denials as `error` results; unexpected exceptions masked (`isError: true`, no traceback). |
 
-## 5. Authentication & authorization
+## 5. Authentication and authorization
 
 | Requirement | Status | Notes |
 |---|---|---|
-| OAuth 2.1 authorization | ✅ | `Auth0Provider` implements the MCP authorization flow against Auth0. |
-| Protected Resource Metadata (RFC 9728) | ✅ | Provided by the FastMCP Auth0 provider so clients can discover the authorization server. |
-| Authorization Server Metadata (RFC 8414) / Dynamic Client Registration (RFC 7591) | ✅ | Handled by Auth0 + the provider; clients register and obtain tokens without manual setup. |
-| Token-scoped access | ✅ (+ SOMA layer) | Beyond OAuth scopes, SOMA enforces a **subject allowlist** on every call (`MCP_TOEGANG_SUBJECTS`) and a stricter allowlist for writes (`MCP_SCHRIJF_SUBJECTS`). **Fail-closed**: with no allowlist and no explicit `MCP_SINGLE_USER=1`, every call is denied. See [`auth.md`](auth.md) and [`security.md`](security.md). |
-| Persistent token storage | ✅ | Fernet-encrypted `DiskStore` on the data volume — tokens survive rebuilds, so no reconnect after deploys. |
+| OAuth 2.1 authorization | Delegated (+ construction tested) | FastMCP `Auth0Provider`; SOMA tests that its configuration builds the provider against a local OIDC discovery document. No real Auth0 in CI. |
+| Protected resource metadata, authorization server metadata, dynamic client registration | Delegated | FastMCP's OAuth proxy. |
+| Bearer token → subject → allowlist | Tested | End to end over HTTP with FastMCP's static token verifier: owner, reader, stranger and forged tokens. |
+| Fail-closed allowlists and configuration | Tested | Kernel and config tests. |
+| Persistent, encrypted token storage | Tested | Encrypted at rest, survives a restart, wrong key reads as missing, URL-shaped keys sanitized. |
 
-## 6. Gap list / roadmap
+## 6. Conformance suite
 
-Concrete, mostly-small items that strengthen the "officially compliant product"
-posture. None are protocol-correctness defects.
+CI runs `tools/run_conformance.sh` against `soma-mcp` started in the documented
+local mode, with pinned suite versions:
 
-1. **Pin a `serverInfo.version`** — expose a semantic version string for SOMA MCP
-   (today only the name `"SOMA"` is set) so clients can report what they're
-   talking to. *(small)*
-2. **Declare the negotiated protocol revision explicitly** and document the
-   supported range, then add it to the release checklist when the SDK bumps it.
-   *(small)*
-3. **Declare `outputSchema` per tool** to make structured outputs first-class.
-   *(medium)*
-4. **Conformance testing against the official clients** — a smoke matrix
-   (Claude, ChatGPT, Cursor/VS Code, MCP Inspector) asserting handshake,
-   `tools/list` and a representative `tools/call`. *(medium — see Phase 3 of the
-   project plan)*
-5. **Optional `resources` view** — a read-only, paginated surface over recent /
-   pinned notes for clients that prefer browsing to querying. *(larger;
-   evaluate demand first)*
-6. **Track the 2026-07-28 revision** once it ships (feature-lifecycle and
-   extensions framework) and decide which, if any, extensions to adopt. *(watch)*
+| Suite | Scenario | Revision | Result |
+|---|---|---|---|
+| `@modelcontextprotocol/conformance@0.1.16` | `server-initialize`, `tools-list`, `ping` | 2025-era | pass |
+| same | `dns-rebinding-protection` | 2025-11-25 | pass |
+| `@modelcontextprotocol/conformance@0.2.0-alpha.12` | `tools-list` | 2025-11-25 and 2026-07-28 | pass |
+| same | `server-stateless` | 2026-07-28 | pass with 2 baselined checks |
 
-## 7. Verdict
+The two baselined checks call `test_missing_capability`, a fixture tool only the
+suite's reference server registers. They are listed one by one in
+[`.github/conformance-baseline.yml`](../.github/conformance-baseline.yml), so
+every other check still gates. The remaining server scenarios need fixture
+tools, resources or prompts that SOMA does not have and do not run. The
+2026-07-28 scenarios come from a pinned alpha release of the suite, the first
+to cover that revision.
 
-SOMA MCP is a **conformant `tools`-only MCP server** on the current stable
-specification, deployed over the standard Streamable HTTP transport with OAuth
-2.1 authorization. Its compatibility with the official ecosystem is real, not
-aspirational: it works with off-the-shelf MCP clients today. The remaining work
-is *polish and productization* (versioning, annotations, conformance tests),
-captured in §6 — not foundational protocol work.
+## 7. Roadmap
+
+1. Declare `outputSchema` per tool. *(medium)*
+2. Run the conformance requirement sets (`--requirements 2026-07-28`) once a
+   stable suite release covers the modern revision. *(small)*
+3. Smoke-test real clients (Claude, ChatGPT, an IDE) against a staging instance
+   before releases. *(medium, manual)*
+4. A read-only `resources` view of recent or pinned notes, if clients want
+   browsing rather than querying. *(larger, evaluate demand first)*
+5. Decide on 2026-07-28 extensions (for example tasks) if a tool ever needs
+   them. *(watch)*
+
+Done in 0.2.0: explicit `serverInfo.version`, documented protocol support with
+tests for both eras, a conformance job, and tool annotations verified on the
+wire.
