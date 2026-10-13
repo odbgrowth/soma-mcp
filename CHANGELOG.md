@@ -120,8 +120,9 @@ MCP protocol `2026-07-28`, plus the handshake revisions `2024-11-05` to
 - The conformance suites are installed from a lockfile
   (`tools/conformance/package-lock.json`, `npm ci --ignore-scripts`).
 - The server refuses to start when the token store directory belongs to an
-  account other than the service user or root, or is writable by group or
-  others and cannot be restricted to mode 0700.
+  account other than the service user or root, is not writable by the service
+  user, or is writable by group or others and cannot be restricted to mode
+  0700.
 - CI fails on known vulnerabilities in the runtime dependency set and the
   declared floors (pip-audit, also weekly) and on committed secrets (gitleaks).
 
