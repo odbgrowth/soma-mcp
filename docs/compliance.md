@@ -40,7 +40,7 @@ SDK, what it **leaves out on purpose**, and what is **roadmap**.
 |---|---|---|
 | Streamable HTTP | Tested | Real HTTP server on 127.0.0.1 in pytest and in the conformance job. |
 | DNS-rebinding protection (Host/Origin validation), unauthenticated server | Tested | Strict guard from `serve()`; conformance `dns-rebinding-protection` and an in-process test (421 for a foreign `Host`, 403 for a foreign `Origin`). |
-| Origin validation, authenticated server | Deviation (configurable) | Off by default: bearer tokens are required and a reverse proxy forwards the public `Host`. Operators enable it with `FASTMCP_HTTP_HOST_ORIGIN_PROTECTION` and `FASTMCP_HTTP_ALLOWED_HOSTS`. See [`security.md`](security.md) §4. |
+| Origin validation, authenticated server | Deviation (configurable) | Off by default: bearer tokens are required and a reverse proxy forwards the public `Host`. Operators enable it with `FASTMCP_HTTP_HOST_ORIGIN_PROTECTION=true` and `FASTMCP_HTTP_ALLOWED_HOSTS` (a JSON array). See [`security.md`](security.md) §4. |
 | stdio | Not implemented (optional) | SOMA is a long-running networked server. |
 | TLS | Deployment | Terminated by the operator's proxy or tunnel. |
 
@@ -82,7 +82,8 @@ The exact capability objects for both eras are listed in
 ## 6. Conformance suite
 
 CI runs `tools/run_conformance.sh` against `soma-mcp` started in the documented
-local mode, with pinned suite versions:
+local mode. The suites are installed from `tools/conformance/package-lock.json`,
+so the suite versions and every transitive npm package are pinned:
 
 | Suite | Scenario | Revision | Result |
 |---|---|---|---|
@@ -104,14 +105,13 @@ to cover that revision.
 1. Declare `outputSchema` per tool. *(medium)*
 2. Optional Host/Origin allowlist for authenticated deployments, derived from
    `BASE_URL`, and an optional client redirect URI allowlist. *(small)*
-3. Lock the conformance suite's npm dependency tree. *(small)*
-4. Run the conformance requirement sets (`--requirements 2026-07-28`) once a
+3. Run the conformance requirement sets (`--requirements 2026-07-28`) once a
    stable suite release covers the modern revision. *(small)*
-5. Smoke-test real clients (Claude, ChatGPT, an IDE) against a staging instance
+4. Smoke-test real clients (Claude, ChatGPT, an IDE) against a staging instance
    before releases. *(medium, manual)*
-6. A read-only `resources` view of recent or pinned notes, if clients want
+5. A read-only `resources` view of recent or pinned notes, if clients want
    browsing rather than querying. *(larger, evaluate demand first)*
-7. Decide on 2026-07-28 extensions (for example tasks) if a tool ever needs
+6. Decide on 2026-07-28 extensions (for example tasks) if a tool ever needs
    them. *(watch)*
 
 Done in 0.2.0: explicit `serverInfo.version`, documented protocol support with

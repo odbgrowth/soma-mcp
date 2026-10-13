@@ -32,6 +32,12 @@ jobs:
     # wheel's dependencies), so it holds no write or OIDC permission.
     permissions:
       contents: read
+    # Digests taken right after the build, before the smoke test installs and
+    # runs the wheel's dependencies. A later step cannot change a step output,
+    # so publish checks the artifacts against these, not against a file that
+    # travelled with them.
+    outputs:
+      sha256sums: ${{ steps.hash.outputs.sha256sums }}
     env:
       TAG: ${{ github.ref_name }}
     steps:
@@ -62,6 +68,22 @@ jobs:
         run: python -m pip install -r .github/requirements-ci.txt
       - name: Build sdist and wheel
         run: python -m build
+      - name: Checksums
+        id: hash
+        run: |
+          cd dist
+          sha256sum soma_mcp-* > SHA256SUMS
+          cat SHA256SUMS
+          {
+            echo "sha256sums<<SHA256SUMS_EOF"
+            cat SHA256SUMS
+            echo "SHA256SUMS_EOF"
+          } >> "$GITHUB_OUTPUT"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: release-dist
+          path: dist/
+          if-no-files-found: error
       - name: twine check
         run: python -m twine check --strict dist/*
       - name: Install the wheel in a clean environment and smoke-test it
@@ -72,13 +94,10 @@ jobs:
           "$RUNNER_TEMP/wheel/bin/python" -I "$GITHUB_WORKSPACE/tools/smoke_test.py" \
             --expect-version "${TAG#v}"
           "$RUNNER_TEMP/wheel/bin/soma-mcp" --version > "$GITHUB_WORKSPACE/release-meta/stack.txt"
-      - name: Checksums
-        run: |
-          cd dist
-          sha256sum soma_mcp-* > SHA256SUMS
-          cat SHA256SUMS
 
       - name: Release notes
+        env:
+          SHA256SUMS: ${{ steps.hash.outputs.sha256sums }}
         run: |
           VERSION="${TAG#v}"
           PREVIOUS="$(git tag --list 'v*.*.*' --sort=-v:refname | grep -vx "$TAG" | head -n1 || true)"
@@ -91,7 +110,7 @@ jobs:
             echo
             echo '```text'
             cat release-meta/stack.txt
-            cat dist/SHA256SUMS
+            printf '%s\n' "$SHA256SUMS" | sed '/^$/d'
             echo '```'
             echo
             echo '```bash'
@@ -108,11 +127,6 @@ jobs:
           } > release-meta/release-notes.md
           cat release-meta/release-notes.md
 
-      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
-        with:
-          name: release-dist
-          path: dist/
-          if-no-files-found: error
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: release-notes
@@ -144,10 +158,18 @@ jobs:
         with:
           name: release-notes
           path: release-meta
-      - name: Verify checksums
+      - name: Verify the artifacts against the digests taken right after the build
+        env:
+          EXPECTED: ${{ needs.build.outputs.sha256sums }}
         run: |
+          # Blank lines dropped: a multiline step output may or may not keep
+          # its final newline, and sha256sum --strict rejects empty lines.
+          printf '%s\n' "$EXPECTED" | sed '/^$/d' > "$RUNNER_TEMP/expected.sums"
+          cmp "$RUNNER_TEMP/expected.sums" dist/SHA256SUMS
           cd dist
-          sha256sum --check --strict SHA256SUMS
+          sha256sum --check --strict "$RUNNER_TEMP/expected.sums"
+          # Exactly the built files plus SHA256SUMS, nothing added on the way.
+          diff <(ls soma_mcp-* | sort) <(awk '{print $2}' "$RUNNER_TEMP/expected.sums" | sort)
           ls -l
 
       - name: Attest build provenance (wheel and sdist)
@@ -155,16 +177,30 @@ jobs:
         with:
           subject-path: dist/soma_mcp-*
 
-      - name: Create or update the GitHub Release
+      # Assets go onto a draft first and the release is published last, so a
+      # failure leaves an editable draft that a re-run completes. A published
+      # release is final (immutable releases): a re-run then stops, and the fix
+      # is a new patch version.
+      - name: Create the GitHub Release
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           TITLE="SOMA MCP ${TAG#v}"
-          if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
-            gh release upload "$TAG" dist/* --clobber --repo "$GITHUB_REPOSITORY"
-            gh release edit "$TAG" --title "$TITLE" --notes-file release-meta/release-notes.md \
-              --repo "$GITHUB_REPOSITORY"
-          else
-            gh release create "$TAG" dist/* --verify-tag --title "$TITLE" \
-              --notes-file release-meta/release-notes.md --repo "$GITHUB_REPOSITORY"
-          fi
+          STATE="$(gh release view "$TAG" --repo "$GITHUB_REPOSITORY" \
+            --json isDraft --jq '.isDraft' 2>/dev/null || echo missing)"
+          case "$STATE" in
+            missing)
+              gh release create "$TAG" dist/* --draft --verify-tag --title "$TITLE" \
+                --notes-file release-meta/release-notes.md --repo "$GITHUB_REPOSITORY"
+              ;;
+            true)
+              gh release upload "$TAG" dist/* --clobber --repo "$GITHUB_REPOSITORY"
+              gh release edit "$TAG" --title "$TITLE" \
+                --notes-file release-meta/release-notes.md --repo "$GITHUB_REPOSITORY"
+              ;;
+            *)
+              echo "::error::$TAG is already published; published releases are final. Release a new patch version instead."
+              exit 1
+              ;;
+          esac
+          gh release edit "$TAG" --draft=false --repo "$GITHUB_REPOSITORY"

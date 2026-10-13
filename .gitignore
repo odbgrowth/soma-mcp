@@ -25,3 +25,6 @@ mcp_oauth/
 .env.*
 !.env.example
 .codex-local/
+
+# Conformance suite install (tools/conformance/package-lock.json)
+node_modules/

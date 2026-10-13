@@ -135,14 +135,20 @@ for that approval after the artifacts are built and verified.
    the tagged commit;
 2. `build` (read-only token): checks the tag is annotated, on `main` and equal
    to `v{__version__}`, extracts the changelog section, builds the sdist and
-   wheel, runs `twine check --strict`, installs the wheel in a clean virtualenv
-   and runs `tools/smoke_test.py --expect-version`, writes `SHA256SUMS` and the
-   release notes, and uploads them as workflow artifacts;
-3. `publish` (environment `release`): downloads the artifacts, verifies
-   `SHA256SUMS`, creates a build-provenance attestation for both artifacts
-   (`actions/attest`), and creates the GitHub Release (or updates it on a
-   re-run) with the changelog section, the exact stack line, the checksums and
-   verification commands.
+   wheel, hashes them at once (`SHA256SUMS`, also passed on as a job output)
+   and uploads them, then runs `twine check --strict`, installs the wheel in a
+   clean virtualenv, runs `tools/smoke_test.py --expect-version`, and writes the
+   release notes;
+3. `publish` (environment `release`): downloads the artifacts, checks them
+   against the digests `build` took before any dependency ran, creates a
+   build-provenance attestation for both artifacts (`actions/attest`), attaches
+   them to a **draft** GitHub Release with the changelog section, the exact
+   stack line, the checksums and verification commands, and publishes the
+   draft last.
+
+A failed run leaves at most a draft, which a re-run completes. A published
+release is final: with immutable releases enabled its assets and tag cannot
+change, so a re-run stops with an error and the fix is a new patch version.
 
 Only `publish` can write (`contents: write`, `id-token: write`,
 `attestations: write`), and it installs and runs no third-party Python: build
@@ -170,9 +176,9 @@ Check the release page: title, notes, the three assets (wheel, sdist and
 
 A published tag is history: do not delete or move it. Roll back by releasing.
 
-- **Bad release, users not yet affected**: mark the GitHub Release as a
-  pre-release or edit its notes with a warning, then fix forward with a patch
-  release.
+- **Bad release, users not yet affected**: add a warning to the release notes
+  where your settings allow it (immutable releases lock the assets and the tag),
+  then fix forward with a patch release.
 - **Users need the previous version now**: install the previous release's wheel
   from its GitHub Release (`gh release download v<previous>`), or pin
   `soma-mcp==<previous>` from a Git URL at the previous tag.

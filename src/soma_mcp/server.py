@@ -105,8 +105,15 @@ def _token_storage(storage: TokenStorage) -> AsyncKeyValue:
     try:
         directory.chmod(0o700)  # mkdir's mode does not tighten an existing directory
     except OSError:
-        log.warning("Could not restrict %s to mode 0700; make it writable by the "
-                    "service user only.", directory)
+        # Not ours to chmod (another owner). Acceptable only if nobody else can
+        # write it: whoever can write the store can plant entries (see above).
+        if directory.stat().st_mode & 0o022:
+            raise ConfigurationError(
+                f"OAuth token store {directory} is writable by group or others and "
+                f"cannot be restricted to mode 0700; fix its owner or permissions"
+            ) from None
+        log.warning("Could not restrict %s to mode 0700; it is not writable by group "
+                    "or others, continuing.", directory)
     store = FileTreeStore(
         data_directory=directory,
         key_sanitization_strategy=FileTreeV1KeySanitizationStrategy(directory),

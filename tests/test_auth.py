@@ -117,3 +117,30 @@ def test_single_user_with_auth0_warns_about_open_access(auth_env, monkeypatch, c
     with caplog.at_level(logging.WARNING, logger="soma_mcp"):
         server.build_server()
     assert "every account that can sign in" in caplog.text
+
+
+def test_store_directory_writable_by_others_that_cannot_be_fixed_refuses(tmp_path, monkeypatch):
+    directory = Path(tmp_path) / TOKEN_STORE_DIRNAME
+    directory.mkdir()
+    directory.chmod(0o777)
+
+    def not_owner(self, mode):
+        raise PermissionError("operation not permitted")
+
+    monkeypatch.setattr(Path, "chmod", not_owner)
+    with pytest.raises(ConfigurationError, match="writable by group or others"):
+        server._token_storage(_storage(tmp_path))
+
+
+def test_store_directory_not_ours_but_private_continues(tmp_path, monkeypatch, caplog):
+    directory = Path(tmp_path) / TOKEN_STORE_DIRNAME
+    directory.mkdir()
+    directory.chmod(0o750)
+
+    def not_owner(self, mode):
+        raise PermissionError("operation not permitted")
+
+    monkeypatch.setattr(Path, "chmod", not_owner)
+    with caplog.at_level(logging.WARNING, logger="soma_mcp"):
+        server._token_storage(_storage(tmp_path))
+    assert "not writable by group or others" in caplog.text

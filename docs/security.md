@@ -72,7 +72,10 @@ Without Auth0 the server is a local experiment, and `serve()` (which the
 
 If you mount `build_server(...)` in your own ASGI app or call its `run()`
 yourself, the guard is yours to enable (`host_origin_protection=True`); FastMCP
-leaves it off by default.
+leaves it off by default. FastMCP's `FASTMCP_HTTP_ALLOWED_HOSTS` (from the
+environment or a `.env` file in the working directory) adds hosts to the
+guard's list even here; a wildcard such as `["*"]` switches the DNS-rebinding
+protection off, so leave it unset on an unauthenticated server.
 
 Authenticated deployments bind to `0.0.0.0` by default (inside a private
 network, behind the proxy) and leave the guard to FastMCP's own setting, off by
@@ -80,8 +83,11 @@ default: every request needs a bearer token, which a rebinding page does not
 have, and a reverse proxy forwards the public `Host` header that a default guard
 would reject. To validate `Host`/`Origin` there as well, set
 `FASTMCP_HTTP_HOST_ORIGIN_PROTECTION=true` and list your public host in
-`FASTMCP_HTTP_ALLOWED_HOSTS`. The server also skips FastMCP's startup banner and
-its update check against PyPI, so it makes no unsolicited outbound request.
+`FASTMCP_HTTP_ALLOWED_HOSTS` as a JSON array, for example
+`FASTMCP_HTTP_ALLOWED_HOSTS='["mcp.example.com"]'`; a plain or comma-separated
+value fails FastMCP's settings validation and stops startup. The server also
+skips FastMCP's startup banner and its update check against PyPI, so it makes no
+unsolicited outbound request.
 
 ## 5. OAuth token storage
 
@@ -105,8 +111,9 @@ upstream wrapper returns an entry that was written without encryption as-is,
 and a ciphertext copied from one entry into another still decrypts. Someone who
 can write to `mcp_oauth/` could therefore plant client registrations or swap
 token entries without the key. The server restricts the directory to mode 0700
-on every start; keep the data volume writable by the service user only. (With
-`DiskStore`, the same write access meant code execution.)
+on every start, and refuses to start if it cannot and the directory is writable
+by group or others; keep the data volume writable by the service user only.
+(With `DiskStore`, the same write access meant code execution.)
 
 ## 6. Prompt-injection fence (egress)
 
@@ -167,13 +174,17 @@ the server and checks nothing leaks.
   declared floors of the direct dependencies (pip-audit), and on committed
   secrets (gitleaks, full history). It also runs weekly on `main`, so a newly
   published advisory turns it red without a code change.
-- The conformance job runs the official suite through `npx` at pinned versions;
-  its transitive npm dependencies are not locked. The job has a read-only token
+- The conformance job installs the official suite from
+  `tools/conformance/package-lock.json` (every transitive package pinned with an
+  integrity hash) with `npm ci --ignore-scripts`. The job has a read-only token
   and its output feeds no release artifact.
 - GitHub Actions are pinned to commit SHAs; workflows default to read-only
-  tokens, and only the release job can write.
-- Release artifacts ship with `SHA256SUMS` and a GitHub build-provenance
-  attestation (`gh attestation verify`).
+  tokens, and only the release's `publish` job can write. That job installs and
+  runs no third-party Python.
+- Release artifacts are hashed right after the build, before any of their
+  dependencies run; `publish` checks them against those digests, then attaches
+  `SHA256SUMS` and a GitHub build-provenance attestation
+  (`gh attestation verify`).
 
 ## 12. Operator checklist
 

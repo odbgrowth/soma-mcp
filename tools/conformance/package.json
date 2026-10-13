@@ -1,0 +1,10 @@
+{
+  "name": "soma-mcp-conformance",
+  "private": true,
+  "description": "Pinned official MCP conformance suites for tools/run_conformance.sh. The lockfile fixes every transitive dependency; install with npm ci --ignore-scripts.",
+  "license": "Apache-2.0",
+  "dependencies": {
+    "conformance-stable": "npm:@modelcontextprotocol/conformance@0.1.16",
+    "conformance-modern": "npm:@modelcontextprotocol/conformance@0.2.0-alpha.12"
+  }
+}

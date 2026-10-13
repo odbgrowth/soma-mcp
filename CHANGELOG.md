@@ -106,7 +106,14 @@ MCP protocol `2026-07-28`, plus the handshake revisions `2024-11-05` to
   account of the Auth0 application gets full access.
 - GitHub Actions are pinned to full commit SHAs, workflows default to
   `contents: read`; only the release's publish job can write, and it runs no
-  third-party Python. Release tags must be annotated and on `main`.
+  third-party Python. Release tags must be annotated and on `main`. Artifacts
+  are hashed before any of their dependencies run and checked against those
+  digests before attestation; the GitHub Release is assembled as a draft and
+  published last.
+- The conformance suites are installed from a lockfile
+  (`tools/conformance/package-lock.json`, `npm ci --ignore-scripts`).
+- The server refuses to start when the token store directory is writable by
+  group or others and cannot be restricted.
 - CI fails on known vulnerabilities in the runtime dependency set and the
   declared floors (pip-audit, also weekly) and on committed secrets (gitleaks).
 

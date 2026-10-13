@@ -172,6 +172,7 @@ Operator steps: [`docs/upgrading.md`](../upgrading.md). Release rollback:
   field read fails tests instead of warning.
 - Dependabot proposes the next majors as separate PRs; adopting FastMCP 5 or
   SDK 3 needs a new ADR.
-- Conformance runs against pinned suite versions, including a 0.2.0 alpha for
-  the 2026-07-28 scenarios, with two check-level exceptions documented in
-  `.github/conformance-baseline.yml`. Full conformance is not claimed.
+- Conformance runs against pinned suite versions installed from a lockfile,
+  including a 0.2.0 alpha for the 2026-07-28 scenarios, with two check-level
+  exceptions documented in `.github/conformance-baseline.yml`. Full conformance
+  is not claimed.
