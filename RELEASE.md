@@ -168,8 +168,8 @@ for that approval after the artifacts are built, checked and smoke-tested.
    to `v{__version__}`, and extracts the changelog section (with links pointing
    at the tag) and the previous published release on the same line of history
    (a tag without a published release is skipped). It installs only the
-   hash-pinned build front end (`.github/requirements-build.txt`), builds with
-   the hash-pinned backend (`.github/constraints-build-backend.txt` with
+   hash-pinned build front end, pip included (`.github/requirements-build.txt`),
+   builds with the hash-pinned backend (`.github/constraints-build-backend.txt` with
    `PIP_REQUIRE_HASHES=1`), `SOURCE_DATE_EPOCH` set to the commit time and
    umask 022, hashes the sdist and wheel at once (`SHA256SUMS`, also a job
    output) and uploads them. No runtime dependency of the package ever runs on
@@ -206,17 +206,21 @@ patch version.
 
 Only `publish` can write (`contents: write`, `id-token: write`,
 `attestations: write`), and it installs and runs no third-party Python. In a
-release run the build front end and backend run only in `build`, and the
-wheel's dependencies run in `smoke` and in `verify`'s CI jobs, which never
-handle the release artifacts. Every job except `publish` has a read-only token.
+release run the release artifacts are built only in `build` and installed with
+their dependencies only in `smoke`. `verify`'s CI jobs also build and install
+the package and run its dependencies, but never handle the release artifacts
+(and upload no package artifact for a tag). Every job except `publish` has a
+read-only token.
 
 **Reproducibility.** The wheel is reproducible: rebuilt from the tag with the
 recipe in §9, it has the same SHA-256 as the released one, and the CI `Package`
 job checks this on every pull request. The recipe matters. The backend version
 is written into the wheel, its timestamps come from `SOURCE_DATE_EPOCH`, and
-the zip stores each file's mode, so a checkout made under umask 002 gives a
-different hash. The sdist is not yet byte-for-byte reproducible (archive
-metadata).
+the zip stores each file's mode, so running `python -m build` under umask 002
+gives a different hash (the umask of the checkout does not matter). The
+recipe's front end pins pip as well: the backend's hash only satisfies
+`PIP_REQUIRE_HASHES` from pip 26.1 on. The sdist is not yet byte-for-byte
+reproducible (archive metadata).
 
 ## 9. Post-release verification
 
@@ -238,16 +242,17 @@ venv/bin/soma-mcp --version
 Check the release page: title, notes, the three assets (wheel, sdist and
 `SHA256SUMS`), and that the stack line matches the changelog.
 
-To rebuild the wheel yourself and compare it (Python 3.10 or newer; run from an
-empty directory):
+To rebuild the wheel yourself and compare it (Python 3.10 or newer, any pip:
+the first install puts the pinned pip into the virtualenv; run from an empty
+directory, in one shell):
 
 ```bash
 VERSION=X.Y.Z
-umask 022                      # file modes are part of the wheel
+umask 022                      # file modes are part of the wheel; keep it for the build
 git clone --quiet --branch "v$VERSION" https://github.com/odbgrowth/soma-mcp src
 cd src
 python3 -m venv ../build-env
-../build-env/bin/pip install --require-hashes --no-deps -r .github/requirements-build.txt
+../build-env/bin/python -m pip install --require-hashes --no-deps -r .github/requirements-build.txt
 SOURCE_DATE_EPOCH="$(git log -1 --format=%ct)" \
 PIP_CONSTRAINT="$PWD/.github/constraints-build-backend.txt" PIP_REQUIRE_HASHES=1 \
   ../build-env/bin/python -m build --outdir rebuilt

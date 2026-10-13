@@ -99,7 +99,8 @@ jobs:
           PIP_REQUIRE_HASHES: "1"
         run: |
           # The reproducible-wheel recipe (RELEASE.md): commit time as the archive
-          # timestamp, the hash-pinned backend, files at mode 0644 (umask 022).
+          # timestamp, the hash-pinned backend, and umask 022 while building (the
+          # wheel stores file modes).
           umask 022
           SOURCE_DATE_EPOCH="$(git log -1 --format=%ct)"
           export SOURCE_DATE_EPOCH

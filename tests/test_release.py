@@ -142,7 +142,31 @@ def test_floors_are_found_in_any_specifier_order_and_comments_are_ignored(tmp_pa
         "fastmcp": "4.1", "mcp": "2.3", "py-key-value-aio": "0.4.4"}
 
 
-@pytest.mark.parametrize("requirement", ['"fastmcp~=4.1"', '"mcp==2.3.0"', '"cryptography"'])
+def test_escaped_quotes_and_compact_keys_are_read(tmp_path):
+    pyproject = Path(tmp_path) / "pyproject.toml"
+    pyproject.write_text('dependencies=[\n    "mcp>=2.3 ; sys_platform != \\"win32\\"",\n]\n',
+                         encoding="utf-8")
+    assert check_floors.declared_floors(pyproject) == {"mcp": "2.3"}
+
+
+@pytest.mark.parametrize("layout", [
+    "dependencies = [\n    'cryptography',\n]\n",              # TOML literal string
+    'dependencies = ["mcp>=2.3,<3"]\n',                          # inline array
+    'dependencies = [\n    "mcp>=2.3", "fastmcp>=4.1",\n]\n',  # two entries on a line
+    'dependencies = [\n    "mcp>=2.3,<3",\n',                   # never closed
+])
+def test_an_unsupported_array_layout_fails_instead_of_skipping(tmp_path, layout):
+    pyproject = Path(tmp_path) / "pyproject.toml"
+    pyproject.write_text(layout, encoding="utf-8")
+    with pytest.raises(check_floors.FloorError):
+        check_floors.declared_floors(pyproject)
+    assert check_floors.main(pyproject) == 1
+
+
+@pytest.mark.parametrize("requirement", [
+    '"fastmcp~=4.1"', '"mcp==2.3.0"', '"cryptography"',
+    '"pkg @ https://example.invalid/pkg.whl#sha256=00"',  # '#' inside the string
+])
 def test_a_dependency_without_a_floor_fails(tmp_path, requirement, capsys):
     pyproject = _pyproject(tmp_path, f'    "mcp>=2.3,<3",\n    {requirement},')
     with pytest.raises(check_floors.FloorError, match="no >= floor"):

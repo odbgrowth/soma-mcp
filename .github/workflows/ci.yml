@@ -174,7 +174,8 @@ jobs:
         with:
           python-version: "3.13"
       # The release build recipe (release.yml), so every pull request proves it
-      # works: hash-pinned front end and backend, commit time, umask 022.
+      # works: hash-pinned front end (pip included) and backend, commit time,
+      # umask 022 while building.
       - name: Install the build front end (hash-pinned)
         run: python -m pip install --require-hashes --no-deps -r .github/requirements-build.txt
       - name: Build sdist and wheel
@@ -217,7 +218,10 @@ jobs:
           "$RUNNER_TEMP/wheel/bin/python" -m pip install --no-cache-dir dist/*.whl
           cd "$RUNNER_TEMP"
           "$RUNNER_TEMP/wheel/bin/python" -I "$GITHUB_WORKSPACE/tools/smoke_test.py"
-      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+      # Not for a release tag (ci.yml runs as release.yml's verify job): the only
+      # downloadable build of a tag is the release's own, digest-checked one.
+      - if: ${{ !startsWith(github.ref, 'refs/tags/') }}
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: dist
           path: dist/

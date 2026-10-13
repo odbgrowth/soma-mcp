@@ -6,8 +6,10 @@
 Run in the dependency-floor CI job after `uv pip install --resolution
 lowest-direct`: printing the resolved versions is not proof, a mismatch must
 fail. Covers the runtime dependencies and the `auth` extra. Standard library
-only and Python 3.10 compatible (no tomllib), so it parses the two dependency
-arrays with a regular expression.
+only and Python 3.10 compatible (no tomllib), so it reads the two dependency
+arrays itself, and only in the layout pyproject.toml uses: an array over
+several lines, one double-quoted requirement per line, comments allowed.
+Anything else is an error, so no dependency is ever skipped silently.
 """
 
 from __future__ import annotations
@@ -18,32 +20,58 @@ import sys
 from pathlib import Path
 
 PYPROJECT = Path(__file__).resolve().parents[1] / "pyproject.toml"
-ARRAY = re.compile(r"^(?:dependencies|auth) = \[(.*?)^\]", re.M | re.S)
-QUOTED = re.compile(r'"([^"]*)"')
+KEY = re.compile(r"(dependencies|auth)\s*=(.*)")
+OPEN = re.compile(r"\s*\[\s*(?:#.*)?")
+CLOSE = re.compile(r"\s*\]\s*(?:#.*)?")
+BLANK = re.compile(r"\s*(?:#.*)?")
+ENTRY = re.compile(r'\s*"((?:[^"\\]|\\.)*)"\s*,?\s*(?:#.*)?')
 REQUIREMENT = re.compile(r"\s*([A-Za-z0-9_.-]+)\s*(?:\[[^\]]*\])?\s*([^;]*)")
 LOWER = re.compile(r">=\s*([0-9][^,\s]*)")
 
 
 class FloorError(ValueError):
-    """A declared dependency has no `>=` floor to check."""
+    """The dependency arrays cannot be read, or an entry has no `>=` floor."""
+
+
+def _requirements(text: str) -> list[str]:
+    """Requirement strings of the `dependencies` and `auth` arrays."""
+    lines = text.splitlines()
+    requirements: list[str] = []
+    for index, line in enumerate(lines):
+        key = KEY.fullmatch(line)
+        if key is None:
+            continue
+        name = key.group(1)
+        if OPEN.fullmatch(key.group(2)) is None:
+            raise FloorError(
+                f"{name}: write the array over several lines, one requirement per line")
+        for body in lines[index + 1:]:
+            if CLOSE.fullmatch(body):
+                break
+            if BLANK.fullmatch(body):
+                continue
+            entry = ENTRY.fullmatch(body)
+            if entry is None:
+                raise FloorError(f"{name}: unsupported entry {body.strip()!r} "
+                                 "(one double-quoted requirement per line)")
+            requirements.append(entry.group(1).replace('\\"', '"'))
+        else:
+            raise FloorError(f"{name}: the array is not closed")
+    return requirements
 
 
 def declared_floors(pyproject: Path = PYPROJECT) -> dict[str, str]:
     """`>=` floors of the runtime dependencies and the `auth` extra, in any
-    specifier order. Comments are ignored; an entry without a floor is an error,
-    so a dependency cannot escape the check by being written another way."""
-    text = pyproject.read_text(encoding="utf-8")
+    specifier order. An entry without a floor is an error."""
     floors: dict[str, str] = {}
     missing: list[str] = []
-    for array in ARRAY.findall(text):
-        for line in array.splitlines():
-            for requirement in QUOTED.findall(line.split("#", 1)[0]):
-                match = REQUIREMENT.match(requirement)
-                lower = LOWER.search(match.group(2)) if match else None
-                if match is None or lower is None:
-                    missing.append(requirement)
-                    continue
-                floors[match.group(1)] = lower.group(1)
+    for requirement in _requirements(pyproject.read_text(encoding="utf-8")):
+        match = REQUIREMENT.match(requirement)
+        lower = LOWER.search(match.group(2)) if match else None
+        if match is None or lower is None:
+            missing.append(requirement)
+            continue
+        floors[match.group(1)] = lower.group(1)
     if missing:
         raise FloorError(f"no >= floor declared for: {', '.join(missing)}")
     return floors

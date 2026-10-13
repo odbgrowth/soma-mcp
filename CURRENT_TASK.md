@@ -19,9 +19,9 @@ deployment.
   branch; reviews and CI tracked in the draft PR.
 - **Files changed:** see the PR; summary in [`CHANGELOG.md`](CHANGELOG.md) under 0.2.0.
 - **Validation evidence:** `.devflows/verify`, `python3 .devflows/run.py package`,
-  `tools/run_conformance.sh`, the ten CI checks (Python 3.10 to 3.14 matrix,
-  dependency floor, security, package with the reproducible-wheel check,
-  conformance) and the review results; all in the PR description.
+  `tools/run_conformance.sh`, the ten CI checks (quality, the Python 3.10 to
+  3.14 matrix, dependency floor, security, package with the reproducible-wheel
+  check, conformance) and the review results; all in the PR description.
 - **Risks/unknowns:** clients re-register once (new token store); unauthenticated
   servers now bind to loopback; GitHub branch, tag and environment protection
   must be configured by hand (RELEASE.md).
