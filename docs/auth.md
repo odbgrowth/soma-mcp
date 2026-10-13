@@ -1,122 +1,165 @@
-# Authentication & Scoped Access
+# Authentication and scoped access
 
-SOMA MCP uses **OAuth 2.1** for authentication (the official MCP authorization
-mechanism) and adds a **subject allowlist** layer for authorization. The two
-together implement the "private memory" guarantee: a valid token is necessary but
-not sufficient.
+SOMA MCP uses **OAuth 2.1** for authentication (the MCP authorization mechanism)
+and adds **subject allowlists** for authorization. Together they implement the
+"private memory" guarantee: a valid token is necessary but not sufficient.
 
-## 1. OAuth 2.1 via Auth0
+## 1. OAuth 2.1 through Auth0
 
-The transport shell configures an `Auth0Provider`:
+With the five Auth0 settings present, the shell builds FastMCP 4's
+`Auth0Provider` (an OIDC proxy with fixed Auth0 application credentials):
 
 ```python
+from fastmcp.server.auth.providers.auth0 import Auth0Provider
+
 auth = Auth0Provider(
-    config_url=os.environ["AUTH0_CONFIG_URL"],
-    client_id=os.environ["AUTH0_CLIENT_ID"],
-    client_secret=os.environ["AUTH0_CLIENT_SECRET"],
-    audience=os.environ["AUTH0_AUDIENCE"],
-    base_url=os.environ["BASE_URL"],
-    **_persistentie,
+    config_url=config.config_url,        # AUTH0_CONFIG_URL (OIDC discovery URL)
+    client_id=config.client_id,          # AUTH0_CLIENT_ID
+    client_secret=config.client_secret,  # AUTH0_CLIENT_SECRET
+    audience=config.audience,            # AUTH0_AUDIENCE
+    base_url=config.base_url,            # BASE_URL (public URL of this server)
+    **persistence,                       # jwt_signing_key + client_storage, see §2
 )
-mcp = FastMCP("SOMA", auth=auth, mask_error_details=True)
 ```
 
-This implements the MCP authorization flow: **Protected Resource Metadata**
-(RFC 9728) so clients discover the authorization server, **Authorization Server
-Metadata** (RFC 8414) and **Dynamic Client Registration** (RFC 7591) so clients
-register and obtain tokens without manual configuration. From the user's side it
-is the familiar "connect → redirect to Auth0 → sign in → connected" flow.
+`config` comes from `soma_mcp.config.load_auth_config()`, which reads SOMA's own
+explicit environment variables (surrounding whitespace stripped) and is
+**all-or-nothing**. FastMCP's `FASTMCP_*` settings, which FastMCP also reads
+from a `.env` file in the working directory, do not configure authentication
+here; they still apply to FastMCP's general behavior:
 
-### Token persistence
+| Environment | Result |
+|---|---|
+| no `AUTH0_*` variable set | local, unauthenticated reference server (warns, loopback only) |
+| all four `AUTH0_*` and `BASE_URL` set | authenticated server |
+| anything in between | `ConfigurationError`: the server refuses to start |
 
-If `MCP_JWT_SIGNING_KEY` and `MCP_STORAGE_ENCRYPTION_KEY` are set, issued tokens
-(and the JTI administration / signing key) are stored in a **Fernet-encrypted
-`DiskStore`** on the data volume. Without this, tokens live only in process
-memory and the signing key is random per start, so every rebuild would force a
-client reconnect. With it, you connect once and survive deploys.
+A missing variable therefore never downgrades a production setup to an open
+server. Error messages name the missing variables and never print values.
 
-## 2. Subjects
+The provider implements the MCP authorization flow: OAuth protected resource
+metadata (RFC 9728), authorization server metadata (RFC 8414), client ID
+metadata documents (the 2026-07-28 registration mechanism) and dynamic client
+registration (RFC 7591, deprecated in 2026-07-28, kept for older clients), with
+Auth0 as the upstream identity provider and a consent screen before the
+redirect. For a user it is "connect, sign in at Auth0, connected". In the Auth0
+application, set the allowed callback URL to `BASE_URL` + `/auth/callback`.
 
-The **subject** (`sub`) is the stable identifier of the authenticated principal,
-read from the access token:
+`BASE_URL` must be the public `https://` URL in production. Client redirect URIs
+are not restricted by SOMA (FastMCP's default); the consent screen is what a
+user sees before an unknown client gets a token.
+
+## 2. Token storage
+
+FastMCP's OAuth proxy keeps state: registered clients, issued tokens and the
+upstream tokens behind them.
+
+**With `MCP_JWT_SIGNING_KEY` and `MCP_STORAGE_ENCRYPTION_KEY`** (both required
+together, and only with Auth0) SOMA passes:
+
+- `jwt_signing_key`: signs the tokens FastMCP issues, so they stay valid across
+  restarts;
+- `client_storage`: a `FileTreeStore` in `$SOMA_DATA/mcp_oauth/` (mode 0700),
+  wrapped in `FernetEncryptionWrapper` with `MCP_STORAGE_ENCRYPTION_KEY`. One
+  encrypted JSON file per entry; key and collection names go through FastMCP's
+  V1 sanitization strategies, which replace unsafe characters and add a hash
+  suffix, so a URL-shaped client id never becomes a path.
+
+Generate the keys with
+`python -c "import secrets; print(secrets.token_urlsafe(48))"` (signing key) and
+`python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"`
+(encryption key). An invalid encryption key stops startup. Entries that no
+longer decrypt (after a key rotation, or a tampered ciphertext) read as missing:
+the client registers again. Encryption protects the entries' confidentiality;
+the store's integrity depends on only the service user being able to write the
+directory (see [`security.md`](security.md) §5).
+
+**Without them**, FastMCP 4's default applies: the signing key is derived from
+`AUTH0_CLIENT_SECRET`, and the store is an encrypted `FileTreeStore` in the
+platform's user data directory. That directory is usually not on a persistent
+volume in containers, so a rebuild forces every client to reconnect.
+
+**Before 0.2.0** the store was a `DiskStore` in `$SOMA_DATA/mcp_tokens/`. It is
+pickle-based (CVE-2025-69872) and is never read by 0.2.0; see
+[`upgrading.md`](upgrading.md).
+
+## 3. Subjects
+
+The **subject** (`sub`) identifies the authenticated principal. The shell reads
+it from the verified access token:
 
 ```python
-def _subject():
-    token = get_access_token()
-    return getattr(token, "subject", None) or (token.claims or {}).get("sub")
+def _subject() -> str | None:
+    token = get_access_token()  # fastmcp.server.dependencies
+    return None if token is None else _token_subject(token)  # token.subject or claims["sub"]
 ```
 
-To find your own subject, call **`soma_whoami`** — it is deliberately *not*
-behind the access guard, so a freshly-connected user can always read their own
-subject, client id and scopes in order to configure the allowlists.
+`None` means "unauthenticated": no allowlist ever contains it, so it only gets
+through in deliberate single-user mode.
 
-## 3. Scoped access: read vs write
+To find your subject, call **`soma_whoami`**. It is deliberately not behind the
+access guard, so a newly connected user can always read their own subject,
+client id and scopes:
 
-Authorization is enforced in the kernel as two allowlists plus a rate limit:
+```json
+{"subject": "auth0|abc123", "client_id": "...", "scopes": ["openid"], "expires_at": "1781000000"}
+```
 
-| Guard | Function | Env var | Applies to |
+On the unauthenticated reference server it returns
+`{"subject": null, "note": "unauthenticated reference server"}`.
+
+## 4. Read and write access
+
+Authorization is enforced in the kernel on every call:
+
+| Guard | Function | Variable | Applies to |
 |---|---|---|---|
-| Rate limit | `rate_limit_check` | `MCP_RATE_LIMIT` | every call |
-| Instance access (read) | `toegang` → `subject_check` | `MCP_TOEGANG_SUBJECTS` | all tools |
-| Write access | `schrijfrecht` → `subject_check` | `MCP_SCHRIJF_SUBJECTS` | `soma_write`, `soma_update`, `soma_delete` |
+| Rate limit | `guard.rate_limit_check` | `MCP_RATE_LIMIT` | every tool except `soma_whoami` |
+| Instance access | `Kernel._access` → `subject_check` | `MCP_TOEGANG_SUBJECTS` | every tool except `soma_whoami` |
+| Write access | `Kernel._write_access` → `subject_check` | `MCP_SCHRIJF_SUBJECTS` | `soma_write`, `soma_update`, `soma_delete` |
 
-- `MCP_TOEGANG_SUBJECTS` and `MCP_SCHRIJF_SUBJECTS` are **comma-separated** lists
-  of subjects.
-- Write access is **defense-in-depth on top of** read access: `schrijfrecht`
-  first calls `toegang`, then additionally checks the write allowlist.
-- A denial is returned as a result dict with a `fout` field (e.g.
-  `"geen schrijfrecht voor dit token (subject: …)"`), so the calling model can
-  read and explain the reason.
+- Allowlists are comma-separated subjects; surrounding spaces are ignored.
+- Write access is checked **on top of** instance access, never instead of it.
+- A denial is a normal tool result with an `error` field, for example
+  `{"error": "no write access for this token (subject: auth0|abc123)"}`, so the
+  calling model can read and explain it.
 
-## 4. Fail-closed semantics
+## 5. Fail-closed semantics
 
-`subject_check` is fail-closed:
-
-```
-allowlist empty?  ──▶  MCP_SINGLE_USER=1 ?  ──▶ yes: allow (single-user mode)
-                                              └─▶ no : DENY
-subject not in allowlist?  ──▶  DENY
+```text
+allowlist empty? ── MCP_SINGLE_USER exactly "1"? ── yes: allow (single-user mode)
+                                                 └─ no : deny
+subject not in allowlist? ── deny
 ```
 
-An unset or blank allowlist line therefore **closes** the server rather than
-opening it. The only way to run without an allowlist is to set `MCP_SINGLE_USER=1`
-*on purpose*. The shell logs a startup warning if neither is configured.
+A blank or missing allowlist line closes the server instead of opening it. The
+shell logs a startup warning when neither an allowlist nor single-user mode is
+configured.
 
-## 5. Typical configurations
+## 6. Typical configurations
 
-**Single-user (your own instance):**
-```
-MCP_SINGLE_USER=1
-# or, more explicit and future-proof:
+Your own instance:
+
+```bash
 MCP_TOEGANG_SUBJECTS=auth0|yourSubjectId
 MCP_SCHRIJF_SUBJECTS=auth0|yourSubjectId
 ```
 
-**Shared-read, owner-write:**
-```
+`MCP_SINGLE_USER=1` skips the allowlists. Without Auth0 that is the local quick
+start. With Auth0 it admits **every account that can sign in to the Auth0
+application** (sign-up and social logins included), so the server logs a
+warning; use the allowlists instead.
+
+Shared read, owner write:
+
+```bash
 MCP_TOEGANG_SUBJECTS=auth0|owner,auth0|trustedReader
 MCP_SCHRIJF_SUBJECTS=auth0|owner
 ```
 
-## 6. Rate limit
+## 7. Rate limit
 
 `MCP_RATE_LIMIT` (default `30`) caps calls per minute per subject in a sliding
-60-second window. Set `0` to disable. Because most tools invoke Haiku, this is a
-cost guardrail as much as an abuse guardrail. A rate-limited call returns a `fout`
-explaining the limit.
-
-## 7. What the client sees
-
-After connecting, a client can call `soma_whoami` to confirm identity:
-
-```json
-{
-  "subject": "auth0|abc123",
-  "client_id": "…",
-  "scopes": ["…"],
-  "expires_at": "2026-06-20 18:00:00"
-}
-```
-
-Use the returned `subject` to populate `MCP_TOEGANG_SUBJECTS` /
-`MCP_SCHRIJF_SUBJECTS`.
+60-second window; `0` disables it. Most real engines call an LLM per tool call,
+so this is a cost guardrail as much as an abuse guardrail. A limited call
+returns `{"error": "rate-limit: at most 30 calls per minute for this subject …"}`.

@@ -13,7 +13,7 @@ nine MCP tools in front of your own memory.
 
 from __future__ import annotations
 
-from typing import Protocol, runtime_checkable
+from typing import Any, Protocol, runtime_checkable
 
 
 @runtime_checkable
@@ -25,18 +25,18 @@ class Engine(Protocol):
     """
 
     # --- read ---
-    def search(self, query: str) -> tuple[list[str], list[str], list[dict], str]:
+    def search(self, query: str) -> tuple[list[str], list[str], list[dict[str, Any]], str]:
         """Return (documents, ids, metadatas, keyword) for a raw vector search."""
 
     def filter_relevant(self, query: str, docs: list[str], ids: list[str]
                         ) -> tuple[list[str], list[str], str]:
         """Relevance-filter a candidate pool. Return (docs, ids, explanation)."""
 
-    def get_chunk(self, chunk_id: str) -> dict | None:
+    def get_chunk(self, chunk_id: str) -> dict[str, Any] | None:
         """Return a single chunk as {"id", "text", "meta"} or None."""
 
     def assemble_context(self, question: str, deep: bool
-                        ) -> tuple[str, list[str], list[dict], str]:
+                        ) -> tuple[str, list[str], list[dict[str, Any]], str]:
         """Run the full retrieval pipeline. Return (text, ids, metas, status)."""
 
     # --- write ---
@@ -67,14 +67,16 @@ class InMemoryEngine:
 
     def __init__(self) -> None:
         # base_id -> {"text", "date", "meta"}
-        self._notes: dict[str, dict] = {}
-        self.feedback: list[dict] = []
+        self._notes: dict[str, dict[str, Any]] = {}
+        self.feedback: list[dict[str, Any]] = []
         self._seq = 0
 
     # --- read ---
-    def search(self, query: str):
+    def search(self, query: str) -> tuple[list[str], list[str], list[dict[str, Any]], str]:
         q = query.lower()
-        docs, ids, metas = [], [], []
+        docs: list[str] = []
+        ids: list[str] = []
+        metas: list[dict[str, Any]] = []
         for bid, n in self._notes.items():
             if q in n["text"].lower() or not q:
                 cid = f"{bid}-0"
@@ -83,25 +85,27 @@ class InMemoryEngine:
                 metas.append(n["meta"])
         return docs, ids, metas, query
 
-    def filter_relevant(self, query, docs, ids):
+    def filter_relevant(self, query: str, docs: list[str], ids: list[str]
+                        ) -> tuple[list[str], list[str], str]:
         # The reference keeps everything; a real engine would prune here.
         return docs, ids, "in-memory engine: no LLM filtering applied"
 
-    def get_chunk(self, chunk_id):
+    def get_chunk(self, chunk_id: str) -> dict[str, Any] | None:
         base = chunk_id.rsplit("-", 1)[0]
         n = self._notes.get(base)
         if not n:
             return None
         return {"id": chunk_id, "text": n["text"], "meta": n["meta"]}
 
-    def assemble_context(self, question, deep):
+    def assemble_context(self, question: str, deep: bool
+                         ) -> tuple[str, list[str], list[dict[str, Any]], str]:
         docs, ids, metas, _ = self.search(question)
         text = "\n\n".join(docs)
         status = f"in-memory: {len(docs)} chunk(s){' (deep)' if deep else ''}"
         return text, ids, metas, status
 
     # --- write ---
-    def add_note(self, text):
+    def add_note(self, text: str) -> int:
         self._seq += 1
         base_id = f"note-ref-{self._seq:04d}"
         self._notes[base_id] = {
@@ -111,11 +115,11 @@ class InMemoryEngine:
         }
         return 1
 
-    def full_note(self, base_id):
+    def full_note(self, base_id: str) -> tuple[str | None, str]:
         n = self._notes.get(base_id)
         return (n["text"], n["date"]) if n else (None, "")
 
-    def update_note(self, base_id, new_text):
+    def update_note(self, base_id: str, new_text: str) -> tuple[int | None, int]:
         n = self._notes.get(base_id)
         if not n:
             return None, 0
@@ -124,10 +128,11 @@ class InMemoryEngine:
         n["text"] = new_text
         return 1, 1
 
-    def delete_note(self, base_id):
+    def delete_note(self, base_id: str) -> int:
         return 1 if self._notes.pop(base_id, None) else 0
 
-    def log_feedback(self, question, answer, verdict, causes, comment, source_ids):
+    def log_feedback(self, question: str, answer: str, verdict: str,
+                     causes: list[str], comment: str, source_ids: list[str]) -> None:
         self.feedback.append({
             "question": question, "answer": answer, "verdict": verdict,
             "causes": causes, "comment": comment, "source_ids": source_ids,

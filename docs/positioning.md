@@ -26,9 +26,9 @@ protocol is the public one; the data and the deployment are entirely yours.
 
 ## What it is *not*
 
-- It is **not a fork of the protocol.** It tracks the official MCP spec
-  (currently 2025-11-25) and is built on the reference Python stack (FastMCP /
-  `mcp`).
+- It is **not a fork of the protocol.** It implements the official MCP
+  revision 2026-07-28 (and serves older handshake-era clients) on the official
+  Python stack: FastMCP 4 on the MCP Python SDK v2.
 - It is **not a multi-tenant SaaS memory.** Each instance is one person's memory.
   Multi-tenancy, where it exists, is instance-per-user, not shared storage.
 - It is **not a public, open endpoint.** Access is fail-closed: a token alone is
@@ -61,7 +61,8 @@ while staying fully compatible with the standard.
 ## Naming
 
 - **Product name:** SOMA MCP (long form: *SOMA Private MCP Server*).
-- **Server identity on the wire:** `SOMA` (the `serverInfo.name`).
+- **Server identity on the wire:** `serverInfo.name` = `SOMA`,
+  `serverInfo.version` = the SOMA MCP package version (for example `0.2.0`).
 
 ## Messaging building blocks
 
@@ -71,9 +72,8 @@ while staying fully compatible with the standard.
   keys."*
 - *"Sovereign by design, compatible by default."*
 
-## Relationship to SIVA
+## Relationship to products built on SOMA
 
-SOMA is also the foundation under **SIVA** (the product/multi-user layer) and the
-later SNA retention layer. SOMA MCP is the protocol-standard doorway into that
-foundation: when SIVA onboards a user, it provisions a SOMA instance, and SOMA
-MCP is how trusted agents reach it.
+SOMA can be the memory foundation under a multi-user product layer. SOMA MCP is
+the protocol-standard doorway into that foundation: whatever product sits on
+top, trusted agents reach a SOMA instance through SOMA MCP.

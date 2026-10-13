@@ -15,6 +15,8 @@ from __future__ import annotations
 
 import hashlib
 
+from mcp.types import ToolAnnotations
+
 # Every tool name, grouped by what it does to memory. Used by the drift test to
 # assert this module stays in lockstep with the tools registered in server.py.
 GROUPS: dict[str, tuple[str, ...]] = {
@@ -24,31 +26,35 @@ GROUPS: dict[str, tuple[str, ...]] = {
     "identity": ("soma_whoami",),
 }
 
-# Tool annotations (mcp.types.ToolAnnotations, passed as a camelCase dict per
-# FastMCP's @mcp.tool(annotations=...)). All four hints are explicit for every
-# tool rather than left to default so a reviewer can see the intent at a glance.
-ANNOTATIONS: dict[str, dict[str, bool]] = {
-    "soma_search": {"readOnlyHint": True, "destructiveHint": False,
-                    "idempotentHint": True, "openWorldHint": False},
-    "soma_get": {"readOnlyHint": True, "destructiveHint": False,
-                 "idempotentHint": True, "openWorldHint": False},
-    "soma_debug": {"readOnlyHint": True, "destructiveHint": False,
-                   "idempotentHint": True, "openWorldHint": False},
-    "soma_context": {"readOnlyHint": True, "destructiveHint": False,
-                      "idempotentHint": True, "openWorldHint": False},
-    "soma_whoami": {"readOnlyHint": True, "destructiveHint": False,
-                     "idempotentHint": True, "openWorldHint": False},
-    "soma_write": {"readOnlyHint": False, "destructiveHint": False,
-                   "idempotentHint": False, "openWorldHint": False},
-    "soma_feedback": {"readOnlyHint": False, "destructiveHint": False,
-                       "idempotentHint": False, "openWorldHint": False},
-    "soma_update": {"readOnlyHint": False, "destructiveHint": True,
-                     "idempotentHint": True, "openWorldHint": False},
-    "soma_delete": {"readOnlyHint": False, "destructiveHint": True,
-                     "idempotentHint": True, "openWorldHint": False},
+# Tool annotations as typed protocol objects. MCP Python SDK v2 models use
+# snake_case attributes in Python and serialize to the camelCase wire names
+# (readOnlyHint, destructiveHint, idempotentHint, openWorldHint); a transport
+# test (tests/test_transport.py) asserts the wire form. All four hints are
+# explicit for every tool rather than left to default so a reviewer can see the
+# intent at a glance.
+ANNOTATIONS: dict[str, ToolAnnotations] = {
+    "soma_search": ToolAnnotations(read_only_hint=True, destructive_hint=False,
+                                   idempotent_hint=True, open_world_hint=False),
+    "soma_get": ToolAnnotations(read_only_hint=True, destructive_hint=False,
+                                idempotent_hint=True, open_world_hint=False),
+    "soma_debug": ToolAnnotations(read_only_hint=True, destructive_hint=False,
+                                  idempotent_hint=True, open_world_hint=False),
+    "soma_context": ToolAnnotations(read_only_hint=True, destructive_hint=False,
+                                    idempotent_hint=True, open_world_hint=False),
+    "soma_whoami": ToolAnnotations(read_only_hint=True, destructive_hint=False,
+                                   idempotent_hint=True, open_world_hint=False),
+    "soma_write": ToolAnnotations(read_only_hint=False, destructive_hint=False,
+                                  idempotent_hint=False, open_world_hint=False),
+    "soma_feedback": ToolAnnotations(read_only_hint=False, destructive_hint=False,
+                                     idempotent_hint=False, open_world_hint=False),
+    "soma_update": ToolAnnotations(read_only_hint=False, destructive_hint=True,
+                                   idempotent_hint=True, open_world_hint=False),
+    "soma_delete": ToolAnnotations(read_only_hint=False, destructive_hint=True,
+                                   idempotent_hint=True, open_world_hint=False),
 }
 
-# Server instructions (InitializeResult.instructions). Kept short and dense:
+# Server instructions: DiscoverResult.instructions on 2026-07-28 connections,
+# InitializeResult.instructions on handshake-era ones. Kept short and dense:
 # clients differ in how much of this they surface (see docs/compliance.md), so
 # the critical rules also live in the individual tool docstrings.
 TEXT = """\

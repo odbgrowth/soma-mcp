@@ -1,0 +1,315 @@
+name: Release
+
+# A release starts only from an annotated tag vMAJOR.MINOR.PATCH on a commit that
+# is already on main, created by a human after approval (RELEASE.md). Four jobs:
+#
+#   verify   the full CI on the tagged commit (ci.yml)
+#   build    read-only: runs only this repository's code and a hash-pinned
+#            build front end and backend, then hashes and uploads
+#   smoke    read-only, separate runner: checks the artifacts against the build
+#            digests, runs twine and installs the wheel with its dependencies
+#   publish  the only job with write access; runs no third-party Python: checks
+#            the artifacts again, attests them, assembles a draft GitHub Release
+#            from trusted job outputs and publishes it last
+#
+# It never publishes to PyPI and never deploys anything.
+on:
+  push:
+    tags:
+      - "v*.*.*"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false # never cancel a release half-way
+
+jobs:
+  verify:
+    name: Verify the tagged commit (full CI)
+    uses: ./.github/workflows/ci.yml
+
+  build:
+    name: Build and hash the artifacts (read-only)
+    needs: verify
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    # Outputs are final when this job ends; no third-party runtime dependency of
+    # the package ever runs on this runner.
+    outputs:
+      sha256sums: ${{ steps.hash.outputs.sha256sums }}
+      notes: ${{ steps.meta.outputs.notes }}
+      previous: ${{ steps.meta.outputs.previous }}
+    env:
+      TAG: ${{ github.ref_name }}
+    steps:
+      # Full history and all tags (annotations preserved since checkout v6.0.2):
+      # needed for the annotated-tag and main-ancestry checks and the previous tag.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.13"
+
+      - name: Tag must be annotated, on main, and match the version and changelog
+        id: meta
+        env:
+          GH_TOKEN: ${{ github.token }} # read-only: lists the published releases
+        run: |
+          if [ "$(git cat-file -t "refs/tags/$TAG")" != "tag" ]; then
+            echo "::error::$TAG is a lightweight tag; release tags must be annotated (git tag -a)"
+            exit 1
+          fi
+          if ! git merge-base --is-ancestor "$GITHUB_SHA" origin/main; then
+            echo "::error::$TAG points at a commit that is not on main"
+            exit 1
+          fi
+          python tools/check_release.py --tag "$TAG" --notes "$RUNNER_TEMP/changelog-notes.md" \
+            --link-base "https://github.com/$GITHUB_REPOSITORY/blob/$TAG/"
+          # The release this one follows: the newest earlier tag on this line of
+          # history that has a published GitHub Release. A failed, abandoned tag
+          # has none, so the compare link still starts at the last real release.
+          PUBLISHED="$(gh api --paginate "repos/$GITHUB_REPOSITORY/releases" \
+            --jq '.[] | select(.draft | not) | .tag_name')"
+          PREVIOUS=""
+          for candidate in $(git tag --merged "$GITHUB_SHA^" --list 'v*.*.*' --sort=-v:refname); do
+            if printf '%s\n' "$PUBLISHED" | grep -Fqx -- "$candidate"; then
+              PREVIOUS="$candidate"
+              break
+            fi
+          done
+          {
+            echo "previous=$PREVIOUS"
+            echo "notes<<CHANGELOG_NOTES_EOF"
+            cat "$RUNNER_TEMP/changelog-notes.md"
+            echo "CHANGELOG_NOTES_EOF"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Install the build front end (hash-pinned)
+        run: python -m pip install --require-hashes --no-deps -r .github/requirements-build.txt
+      - name: Build sdist and wheel
+        env:
+          # Pins the build backend, by hash, inside build's isolated environment.
+          PIP_CONSTRAINT: ${{ github.workspace }}/.github/constraints-build-backend.txt
+          PIP_REQUIRE_HASHES: "1"
+        run: |
+          # The reproducible-wheel recipe (RELEASE.md): commit time as the archive
+          # timestamp, the hash-pinned backend, and umask 022 while building (the
+          # wheel stores file modes).
+          umask 022
+          SOURCE_DATE_EPOCH="$(git log -1 --format=%ct)"
+          export SOURCE_DATE_EPOCH
+          python -m build
+      - name: Checksums
+        id: hash
+        run: |
+          cd dist
+          sha256sum soma_mcp-* > SHA256SUMS
+          cat SHA256SUMS
+          {
+            echo "sha256sums<<SHA256SUMS_EOF"
+            cat SHA256SUMS
+            echo "SHA256SUMS_EOF"
+          } >> "$GITHUB_OUTPUT"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: release-dist
+          path: dist/
+          if-no-files-found: error
+
+  smoke:
+    name: Check and smoke-test the artifacts (read-only)
+    needs: build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    # Runs the wheel's third-party dependencies, on its own runner, with a
+    # read-only token. publish only takes its success and one validated line.
+    permissions:
+      contents: read
+    outputs:
+      stack: ${{ steps.smoke.outputs.stack }}
+    env:
+      TAG: ${{ github.ref_name }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.13"
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: release-dist
+          path: dist
+      - name: Check the artifacts against the build digests
+        env:
+          EXPECTED: ${{ needs.build.outputs.sha256sums }}
+        run: |
+          # Blank lines dropped: a multiline output may or may not keep its final
+          # newline, and sha256sum --strict rejects empty lines.
+          printf '%s\n' "$EXPECTED" | sed '/^$/d' > "$RUNNER_TEMP/expected.sums"
+          cmp "$RUNNER_TEMP/expected.sums" dist/SHA256SUMS
+          cd dist
+          sha256sum --check --strict "$RUNNER_TEMP/expected.sums"
+          diff <(find . -mindepth 1 -printf '%P\n' | sort) \
+               <({ awk '{print $2}' "$RUNNER_TEMP/expected.sums"; echo SHA256SUMS; } | sort)
+      - name: Install CI tools
+        run: python -m pip install -r .github/requirements-ci.txt
+      - name: twine check
+        run: python -m twine check --strict dist/soma_mcp-*
+      - name: Install the wheel in a clean environment and smoke-test it
+        id: smoke
+        run: |
+          python -m venv "$RUNNER_TEMP/wheel"
+          "$RUNNER_TEMP/wheel/bin/python" -m pip install --no-cache-dir dist/*.whl
+          cd "$RUNNER_TEMP"
+          "$RUNNER_TEMP/wheel/bin/python" -I "$GITHUB_WORKSPACE/tools/smoke_test.py" \
+            --expect-version "${TAG#v}"
+          # A plain assignment, so a failing --version fails this step (set -e).
+          STACK="$("$RUNNER_TEMP/wheel/bin/soma-mcp" --version)"
+          case "$STACK" in
+            "soma-mcp ${TAG#v} ("*")") ;;
+            *) echo "::error::unexpected soma-mcp --version output: $STACK"; exit 1 ;;
+          esac
+          echo "stack=$STACK" >> "$GITHUB_OUTPUT"
+
+  publish:
+    name: Attest and publish the GitHub Release
+    needs: [build, smoke]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    # Required reviewers on this environment are the human gate between "tag
+    # pushed" and "release published" (RELEASE.md, Repository settings).
+    environment: release
+    # The only job with write access. No checkout, no pip, no project code:
+    # digest checks, the attestation action and the GitHub CLI.
+    permissions:
+      contents: write # create the GitHub Release and upload its assets
+      id-token: write # Sigstore certificate for the build provenance attestation
+      attestations: write # store the attestation on the repository
+    env:
+      TAG: ${{ github.ref_name }}
+      GH_REPO: ${{ github.repository }}
+    steps:
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: release-dist
+          path: dist
+      - name: Check the artifacts against the build digests
+        env:
+          EXPECTED: ${{ needs.build.outputs.sha256sums }}
+        run: |
+          printf '%s\n' "$EXPECTED" | sed '/^$/d' > "$RUNNER_TEMP/expected.sums"
+          cmp "$RUNNER_TEMP/expected.sums" dist/SHA256SUMS
+          cd dist
+          sha256sum --check --strict "$RUNNER_TEMP/expected.sums"
+          # Exactly the hashed files plus SHA256SUMS, nothing added on the way.
+          diff <(find . -mindepth 1 -printf '%P\n' | sort) \
+               <({ awk '{print $2}' "$RUNNER_TEMP/expected.sums"; echo SHA256SUMS; } | sort)
+
+      # Everything that can still reject this run is checked before the
+      # attestation: on a public repository it goes to the public Sigstore
+      # transparency log, which keeps it even if the run fails afterwards.
+      - name: Check the smoke output and the release state
+        id: state
+        env:
+          GH_TOKEN: ${{ github.token }}
+          STACK: ${{ needs.smoke.outputs.stack }}
+        run: |
+          # The one line from smoke (which ran third-party code) must have the
+          # exact `soma-mcp --version` shape before it goes into the notes.
+          VERSION="${TAG#v}"
+          if [ "$(printf '%s' "$STACK" | wc -l)" -ne 0 ] || ! printf '%s' "$STACK" | grep -Eqx \
+            "soma-mcp ${VERSION//./\\.} \(fastmcp [0-9][0-9A-Za-z.+-]*, mcp [0-9][0-9A-Za-z.+-]*; protocol [0-9-]+, legacy handshake [0-9, -]+\)"; then
+            echo "::error::unexpected stack line from the smoke job"
+            exit 1
+          fi
+          if STATE="$(gh release view "$TAG" --json isDraft --jq .isDraft 2>"$RUNNER_TEMP/view.err")"; then
+            :
+          elif grep -q "release not found" "$RUNNER_TEMP/view.err"; then
+            STATE=missing
+          else
+            cat "$RUNNER_TEMP/view.err" >&2
+            exit 1
+          fi
+          case "$STATE" in
+            missing | true) echo "state=$STATE" >> "$GITHUB_OUTPUT" ;;
+            *)
+              echo "::error::$TAG is already published; published releases are final. Release a new patch version instead."
+              exit 1
+              ;;
+          esac
+
+      - name: Attest build provenance (wheel and sdist)
+        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4.2.2
+        with:
+          subject-path: dist/soma_mcp-*
+
+      # Assembled here from trusted outputs only: the changelog section and the
+      # digests come from build (before any dependency ran); the stack line from
+      # smoke was checked above.
+      - name: Release notes
+        env:
+          NOTES: ${{ needs.build.outputs.notes }}
+          SHA256SUMS: ${{ needs.build.outputs.sha256sums }}
+          PREVIOUS: ${{ needs.build.outputs.previous }}
+          STACK: ${{ needs.smoke.outputs.stack }}
+        run: |
+          VERSION="${TAG#v}"
+          {
+            printf '%s\n' "$NOTES"
+            echo
+            echo "## Verify this release"
+            echo
+            echo "Built from the annotated tag \`$TAG\`, smoke-tested, and attested by the release workflow:"
+            echo
+            echo '```text'
+            printf '%s\n' "$STACK"
+            printf '%s\n' "$SHA256SUMS" | sed '/^$/d'
+            echo '```'
+            echo
+            echo '```bash'
+            echo "sha256sum --check SHA256SUMS"
+            for file in "soma_mcp-${VERSION}-py3-none-any.whl" "soma_mcp-${VERSION}.tar.gz"; do
+              echo "gh attestation verify $file --repo $GH_REPO \\"
+              echo "  --signer-workflow $GH_REPO/.github/workflows/release.yml"
+            done
+            echo '```'
+            echo
+            echo "Upgrade notes: [docs/upgrading.md](https://github.com/$GH_REPO/blob/$TAG/docs/upgrading.md)."
+            if [ -n "$PREVIOUS" ]; then
+              echo "Changes: https://github.com/$GH_REPO/compare/$PREVIOUS...$TAG"
+            else
+              echo "Commits: https://github.com/$GH_REPO/commits/$TAG"
+            fi
+          } > "$RUNNER_TEMP/release-notes.md"
+          cat "$RUNNER_TEMP/release-notes.md"
+
+      # Assets go onto a draft first and the release is published last, so a
+      # failure leaves an editable draft that a re-run completes. A published
+      # release is final (immutable releases): a re-run then stops in the state
+      # check above, and the fix is a new patch version.
+      - name: Create the draft, then publish it
+        env:
+          GH_TOKEN: ${{ github.token }}
+          STATE: ${{ steps.state.outputs.state }}
+        run: |
+          TITLE="SOMA MCP ${TAG#v}"
+          ASSETS=(dist/soma_mcp-* dist/SHA256SUMS)
+          if [ "$STATE" = missing ]; then
+            gh release create "$TAG" "${ASSETS[@]}" --draft --verify-tag --title "$TITLE" \
+              --notes-file "$RUNNER_TEMP/release-notes.md"
+          else
+            gh release upload "$TAG" "${ASSETS[@]}" --clobber
+            gh release edit "$TAG" --title "$TITLE" --notes-file "$RUNNER_TEMP/release-notes.md"
+          fi
+          # Publish exactly this draft, and only with exactly the expected assets.
+          ID="$(gh release view "$TAG" --json databaseId --jq .databaseId)"
+          diff <(gh release view "$TAG" --json assets --jq '.assets[].name' | sort) \
+               <(cd dist && find . -mindepth 1 -printf '%P\n' | sort)
+          gh api --method PATCH "repos/$GH_REPO/releases/$ID" -F draft=false --jq '.html_url'

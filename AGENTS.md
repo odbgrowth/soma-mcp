@@ -15,7 +15,7 @@ Read it for non-trivial work.
   Onno approval.
 - Run `.devflows/verify` before handoff. Commits stage explicit paths and PRs start draft.
 - Merge, package publication, and production deployment require separate explicit Onno
-  approval.
+  approval. Release tags follow `RELEASE.md`; creating one also requires that approval.
 
 Roles: orchestrator coordinates; architect proposes ADRs; developer implements on a
 feature branch; reviewer performs an independent read-only review; tester validates;

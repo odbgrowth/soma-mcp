@@ -1,72 +1,61 @@
-# SOMA MCP
+# SOMA MCP documentation
 
-**One private memory. Every agent you trust — powered by the official Model Context Protocol.**
+SOMA MCP is a private, self-hosted reference implementation of an
+[MCP](https://modelcontextprotocol.io) server. It exposes one person's memory
+(notes, imported conversations, documents, whatever your `Engine` indexes) as
+nine MCP tools that any MCP client can call over an authenticated connection.
 
-SOMA MCP is a **private, self-hosted implementation of the official
-[Model Context Protocol](https://modelcontextprotocol.io) (MCP)**. It exposes a
-single person's memory — AI conversations (Claude, ChatGPT), manual notes,
-health data (WHOOP), listening history (Spotify) and uploaded documents — as a
-small set of MCP tools that any MCP-compatible agent can call over an
-authenticated connection.
+## In one paragraph
 
-Where most MCP servers wrap a public API or a shared SaaS backend, SOMA MCP
-wraps **your own retrieval pipeline over your own data**, running on hardware you
-control. Same protocol, same clients, sovereign substrate.
+A [FastMCP](https://github.com/PrefectHQ/fastmcp) transport shell
+(`src/soma_mcp/server.py`) sits in front of a FastMCP-free tool kernel
+(`src/soma_mcp/kernel.py`) and an injected retrieval `Engine`
+(`src/soma_mcp/engine.py`). It speaks JSON-RPC 2.0 over Streamable HTTP at
+`/mcp`, implements MCP revision **2026-07-28** (and the older handshake
+revisions through the MCP Python SDK), authenticates clients with OAuth 2.1
+through Auth0, and exposes its memory through tools only (no prompts or
+resources).
 
----
+## Using a running instance
 
-## What this is, in one paragraph
+You need an MCP client (Claude, ChatGPT, Cursor, VS Code, the MCP Inspector or
+your own agent on an MCP SDK) and the instance URL, `https://<your-host>/mcp`.
 
-SOMA MCP is the [FastMCP](https://github.com/jlowin/fastmcp)-based transport
-shell (`soma_mcp.py`) in front of SOMA's retrieval engine. It speaks **JSON-RPC
-2.0 over Streamable HTTP**, authenticates clients with **OAuth 2.1** (via Auth0),
-and advertises the **`tools`** capability — nine tools that search, read, write,
-correct and audit a personal memory. It is the only interface the owner actually
-uses day to day; the Streamlit UI shares the exact same pipeline underneath.
+1. **Add the server** to your client with that URL.
+2. **Authenticate.** The first request starts the OAuth 2.1 flow: sign in at the
+   instance's Auth0 tenant and the client receives a token. See [`auth.md`](auth.md).
+3. **Get allowlisted.** Call `soma_whoami`, give the subject to the instance
+   owner, who adds it to `MCP_TOEGANG_SUBJECTS` (and `MCP_SCHRIJF_SUBJECTS` for
+   writes).
+4. **Ask.** The agent picks `soma_context` or `soma_search` and answers from the
+   returned memory. See [`tools.md`](tools.md) and [`examples.md`](examples.md).
 
-## Quick start
-
-You need an MCP-compatible client (Claude, ChatGPT, Cursor, VS Code, or a custom
-agent using an MCP SDK) and the connection URL for a running SOMA instance.
-
-1. **Point your client at the server.** SOMA serves MCP at the `/mcp` path of its
-   base URL — in production behind a Cloudflare Tunnel, e.g.
-   `https://soma.usesiva.net/mcp`.
-2. **Authenticate.** The first connection triggers the OAuth 2.1 flow: your
-   client is redirected to Auth0, you sign in, and the client receives a scoped
-   access token. Tokens are persistent across server rebuilds, so you connect
-   once. See [`auth.md`](auth.md).
-3. **Discover tools.** Your client calls `tools/list` and sees the nine SOMA
-   tools with their schemas and descriptions. See [`tools.md`](tools.md).
-4. **Call a tool.** Ask your agent a question; it calls `soma_context` or
-   `soma_search` and answers from your memory. See [`examples.md`](examples.md).
-
-Running the server itself (containers, tunnel, env vars) is covered in the
-top-level [`README.md`](../README.md) and [`architecture.md`](architecture.md).
+Running the server yourself: the top-level [`README.md`](../README.md).
 
 ## Documentation map
 
 | Document | What it covers |
-|----------|----------------|
-| [`positioning.md`](positioning.md) | What SOMA MCP is, who it's for, and how it differs from a hosted MCP server. |
-| [`compliance.md`](compliance.md) | Honest gap analysis against the official MCP specification — what's compliant, what's a deliberate subset, what's roadmap. |
-| [`specification.md`](specification.md) | SOMA's concrete protocol surface: transport, lifecycle, capabilities, message shapes. |
-| [`architecture.md`](architecture.md) | How the server is built — the shell/kernel split, the shared pipeline, deployment topology. |
-| [`security.md`](security.md) | The self-hosted threat model: fail-closed access, rate limiting, audit logging, prompt-injection data-fencing. |
-| [`tools.md`](tools.md) | Reference for all nine tools — inputs, outputs, guards, when to use each. |
-| [`auth.md`](auth.md) | OAuth 2.1 flow, subjects, scoped access (read vs write), token persistence. |
-| [`examples.md`](examples.md) | Connecting from Claude, ChatGPT and a custom SDK agent, with sample calls. |
+|---|---|
+| [`positioning.md`](positioning.md) | What SOMA MCP is, who it is for, how it differs from a hosted MCP server. |
+| [`specification.md`](specification.md) | The concrete protocol surface: stack, transport, protocol eras, capabilities, configuration. |
+| [`compliance.md`](compliance.md) | What is implemented, tested, delegated to the SDK, deliberately left out, or roadmap. |
+| [`architecture.md`](architecture.md) | Shell / kernel / engine split, guards, deployment shape, release versus deployment. |
+| [`tools.md`](tools.md) | All nine tools: parameters, results, guards, annotations, when to use each. |
+| [`auth.md`](auth.md) | OAuth 2.1 through Auth0, subjects, read and write allowlists, token storage. |
+| [`security.md`](security.md) | Threat model and the controls that implement it, operator checklist. |
+| [`examples.md`](examples.md) | Connecting from Claude, ChatGPT, editors, the Inspector and the Python SDK. |
+| [`upgrading.md`](upgrading.md) | Upgrade notes per release, starting with 0.1.x → 0.2.0. |
+| [`../RELEASE.md`](../RELEASE.md) | How a version is tagged, built, attested and released. |
+| [`../CHANGELOG.md`](../CHANGELOG.md) | What changed in each release. |
+| [`adr/`](adr/) | Architecture decision records ([ADR-003](adr/003-mcp-sdk-v2-fastmcp4-upgrade.md): MCP SDK v2, FastMCP 4, 2026-07-28). |
+| [`agent-roles.md`](agent-roles.md), [`agent-knowledge.md`](agent-knowledge.md) | Rules and accumulated knowledge for the coding agents that work on this repository. |
 
-## Standard, and where it lives now
+## The standard
 
-MCP is an open standard, introduced by Anthropic in November 2024. In December
-2025 it was contributed to the **Agentic AI Foundation (AAIF)** under the **Linux
-Foundation**, alongside A2A, goose and AGENTS.md, placing it under vendor-neutral
-governance. SOMA MCP tracks the **2025-11-25** stable specification revision; the
-next revision (release candidate **2026-07-28**) is in draft.
+MCP is an open standard introduced by Anthropic in November 2024. In December
+2025 it was contributed to the Agentic AI Foundation (AAIF) under the Linux
+Foundation, alongside A2A, goose and AGENTS.md. The current revision is
+**2026-07-28**, which SOMA MCP implements.
 
-- Official site: <https://modelcontextprotocol.io>
-- Specification & SDKs: <https://github.com/modelcontextprotocol>
-
-SOMA MCP's goal is to be a recognizable, compatible citizen of that ecosystem —
-while keeping your memory entirely your own.
+- Specification: <https://modelcontextprotocol.io/specification/2026-07-28>
+- SDKs and tools: <https://github.com/modelcontextprotocol>

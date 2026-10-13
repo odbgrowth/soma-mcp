@@ -1,0 +1,6 @@
+# The sdist carries the package source, its metadata and the changelog. The test
+# suite depends on repository files (docs, tools, workflows) that do not belong
+# in a source distribution, so tests run from the tagged Git checkout instead.
+include CHANGELOG.md
+prune tests
+global-exclude __pycache__ *.py[cod]
