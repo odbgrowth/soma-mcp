@@ -8,6 +8,7 @@ import os
 import shutil
 import subprocess
 import sys
+import tempfile
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -131,18 +132,29 @@ def validate_post_commit_hook() -> None:
 
 
 def checks(kind: str) -> None:
+    """Local quality gates. Keep in step with .github/workflows/ci.yml."""
     python = str(VENV_PYTHON if VENV_PYTHON.exists() else Path(sys.executable))
     if kind == "lint":
-        run([python, "-m", "compileall", "-q", "src", "tests"])
-    elif kind == "test":
-        run([python, "-m", "pytest"])
+        run([python, "-m", "ruff", "check", "."])
+        run([python, "-m", "compileall", "-q", "src", "tests", "tools"])
     elif kind == "typecheck":
-        raise FlowGuardError("NOT_CONFIGURED: no static type checker is configured")
+        run([python, "-m", "mypy"])
+    elif kind == "test":
+        run([python, "-m", "pytest", "--cov", "--cov-report=term-missing"])
+    elif kind == "release-check":
+        run([python, "tools/check_release.py"])
+    elif kind == "package":
+        with tempfile.TemporaryDirectory(prefix="soma-mcp-dist-") as dist:
+            run([python, "-m", "build", "--outdir", dist])
+            artifacts = sorted(str(path) for path in Path(dist).iterdir())
+            run([python, "-m", "twine", "check", "--strict", *artifacts])
 
 
 def verify() -> None:
     checks("lint")
+    checks("typecheck")
     checks("test")
+    checks("release-check")
     run(["git", "diff", "--check"])
 
 
@@ -155,6 +167,8 @@ def parser() -> argparse.ArgumentParser:
             "lint",
             "test",
             "typecheck",
+            "release-check",
+            "package",
             "commit",
             "push",
             "pr",
@@ -187,7 +201,7 @@ def main() -> int:
     if args.action == "verify":
         verify()
         return 0
-    if args.action in {"lint", "test", "typecheck"}:
+    if args.action in {"lint", "test", "typecheck", "release-check", "package"}:
         checks(args.action)
         return 0
 

@@ -1,0 +1,229 @@
+name: CI
+
+# Pull requests and main get the full gate. The release workflow calls this
+# same file on the tagged commit, so a release is verified exactly like main.
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_call:
+
+# Least privilege: no job here writes anything. Pull requests from forks get a
+# read-only token and no secrets (pull_request, never pull_request_target).
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.event.pull_request.number || github.ref }}
+  # A new commit on a PR supersedes the running check; main and tags finish.
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+env:
+  PIP_DISABLE_PIP_VERSION_CHECK: "1"
+  PYTHONUNBUFFERED: "1"
+  # Fail on any camelCase field read through FastMCP's SDK v1 compatibility
+  # bridge instead of warning (FastMCP 3 -> 4 upgrade checklist, item 12).
+  FASTMCP_MCP_CAMELCASE_COMPAT: "false"
+
+jobs:
+  quality:
+    name: Quality (lint, types, release metadata)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.13"
+          cache: pip
+          cache-dependency-path: pyproject.toml
+      - name: Install
+        run: python -m pip install -e ".[dev,auth]"
+      - name: Ruff
+        run: python -m ruff check .
+      - name: Mypy
+        run: python -m mypy
+      - name: Compile
+        run: python -m compileall -q src tests tools
+      - name: Version, changelog and tag rules
+        run: python tools/check_release.py
+      - name: Whitespace
+        env:
+          EVENT: ${{ github.event_name }}
+          BASE_REF: ${{ github.base_ref }}
+        run: |
+          if [ "$EVENT" = "pull_request" ]; then
+            git diff --check "origin/$BASE_REF...HEAD"
+          elif git rev-parse --verify --quiet HEAD^ >/dev/null; then
+            git diff --check HEAD^ HEAD
+          fi
+
+  tests:
+    name: Tests (Python ${{ matrix.python-version }})
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.10", "3.11", "3.12", "3.13", "3.14"]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: pip
+          cache-dependency-path: pyproject.toml
+      - name: Install
+        run: python -m pip install -e ".[dev,auth]"
+      - name: Show stack
+        run: soma-mcp --version
+      # Unit, security-invariant, transport (in memory + Streamable HTTP on
+      # 127.0.0.1, both protocol eras) and documentation tests, with the
+      # coverage gate from pyproject.toml.
+      - name: Pytest with coverage
+        run: python -m pytest --cov --cov-report=term-missing
+
+  dependency-floor:
+    name: Dependency floor (Python 3.10, lowest direct versions)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.10"
+      - name: Install CI tools
+        run: python -m pip install -r .github/requirements-ci.txt
+      # The oldest Python with the oldest versions pyproject.toml admits for
+      # fastmcp, mcp, cryptography and py-key-value-aio. Proves the floors work.
+      - name: Install at the declared floors
+        run: |
+          uv venv --python "$(command -v python)" .venv-floor
+          uv pip install --python .venv-floor --resolution lowest-direct -e ".[auth]"
+          uv pip install --python .venv-floor "pytest>=8"
+          uv pip freeze --python .venv-floor --exclude-editable > floor-requirements.txt
+          grep -iE '^(fastmcp|mcp|cryptography|py-key-value-aio)==' floor-requirements.txt
+      - name: Pytest at the floors
+        run: .venv-floor/bin/python -m pytest -q
+      - name: Audit the floors
+        run: python -m pip_audit --strict --no-deps --disable-pip --progress-spinner off -r floor-requirements.txt
+
+  security:
+    name: Security (pip-audit, gitleaks)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    env:
+      GITLEAKS_VERSION: "8.30.1"
+      GITLEAKS_SHA256: "551f6fc83ea457d62a0d98237cbad105af8d557003051f41f3e7ca7b3f2470eb"
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.13"
+      - name: Install CI tools
+        run: python -m pip install -r .github/requirements-ci.txt
+      # Audit exactly what `pip install soma-mcp[auth]` installs today, in a
+      # clean environment, not the contributor tooling.
+      - name: Resolve the runtime dependency set
+        run: |
+          python -m venv "$RUNNER_TEMP/runtime"
+          "$RUNNER_TEMP/runtime/bin/python" -m pip install --quiet ".[auth]"
+          "$RUNNER_TEMP/runtime/bin/python" -m pip freeze --all \
+            | grep -viE '^(soma-mcp|pip|setuptools)( @|==)' > runtime-requirements.txt
+          cat runtime-requirements.txt
+      - name: pip-audit (fails on any known vulnerability)
+        run: python -m pip_audit --strict --no-deps --disable-pip --progress-spinner off -r runtime-requirements.txt
+      - name: Install gitleaks (pinned, checksum-verified)
+        run: |
+          curl -sSfL -o gitleaks.tgz \
+            "https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz"
+          echo "${GITLEAKS_SHA256}  gitleaks.tgz" | sha256sum --check --strict -
+          tar -xzf gitleaks.tgz gitleaks
+          rm gitleaks.tgz
+      - name: gitleaks (full history)
+        run: ./gitleaks git --redact --no-banner --verbose .
+
+  package:
+    name: Package (build, twine, clean wheel)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.13"
+      - name: Install CI tools
+        run: python -m pip install -r .github/requirements-ci.txt
+      - name: Build sdist and wheel
+        run: python -m build
+      - name: twine check
+        run: python -m twine check --strict dist/*
+      - name: Wheel contents
+        run: |
+          python -m zipfile -l dist/*.whl
+          if python -m zipfile -l dist/*.whl | grep -qE '(^| )tests/'; then
+            echo "::error::tests/ leaked into the wheel"; exit 1
+          fi
+      # A clean virtualenv with no cache and no source tree on sys.path: an
+      # editable install would hide a missing module, py.typed or entry point.
+      - name: Install the wheel in a clean environment and smoke-test it
+        run: |
+          python -m venv "$RUNNER_TEMP/wheel"
+          "$RUNNER_TEMP/wheel/bin/python" -m pip install --no-cache-dir dist/*.whl
+          cd "$RUNNER_TEMP"
+          "$RUNNER_TEMP/wheel/bin/python" -I "$GITHUB_WORKSPACE/tools/smoke_test.py"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: dist
+          path: dist/
+          retention-days: 7
+          if-no-files-found: error
+
+  conformance:
+    name: Integration (official MCP conformance suite)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.13"
+          cache: pip
+          cache-dependency-path: pyproject.toml
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: "22"
+      - name: Install
+        run: python -m pip install ".[auth]"
+      # The documented local quick start: no Auth0, single-user, loopback.
+      - name: Start soma-mcp
+        env:
+          MCP_SINGLE_USER: "1"
+          MCP_RATE_LIMIT: "0"
+          SOMA_DATA: ${{ runner.temp }}
+        run: |
+          nohup soma-mcp > "$RUNNER_TEMP/soma-mcp.log" 2>&1 &
+          for _ in $(seq 1 50); do
+            if grep -q "Uvicorn running" "$RUNNER_TEMP/soma-mcp.log"; then exit 0; fi
+            sleep 0.2
+          done
+          cat "$RUNNER_TEMP/soma-mcp.log"; exit 1
+      - name: Conformance scenarios (tools-only profile, both protocol eras)
+        run: tools/run_conformance.sh http://127.0.0.1:8000/mcp
+      - name: Server log
+        if: always()
+        run: cat "$RUNNER_TEMP/soma-mcp.log"

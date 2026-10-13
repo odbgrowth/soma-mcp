@@ -1,0 +1,8 @@
+# Known conformance failures for SOMA's tools-only profile. Each entry names one
+# check, never a whole scenario, so every other check in the scenario still gates.
+server:
+  # Both checks call `test_missing_capability`, a fixture tool that only the
+  # suite's reference server registers. SOMA's tools need no client capability
+  # (no sampling, elicitation or roots), so there is nothing for them to exercise.
+  - server-stateless:sep-2575-server-rejects-undeclared-capability
+  - server-stateless:sep-2575-missing-capability-http-400

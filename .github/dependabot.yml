@@ -1,0 +1,32 @@
+version: 2
+updates:
+  # Runtime and dev dependency ranges in pyproject.toml. For a library the
+  # ranges are the contract: Dependabot only proposes a change when a release
+  # falls outside them (a new major), and every such PR runs the full CI.
+  - package-ecosystem: pip
+    directory: /
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+    groups:
+      python-minor-and-patch:
+        update-types: [minor, patch]
+
+  # Exact versions of the tools the workflows install (.github/requirements-ci.txt).
+  - package-ecosystem: pip
+    directory: /.github
+    schedule:
+      interval: weekly
+    groups:
+      ci-tools-minor-and-patch:
+        update-types: [minor, patch]
+
+  # SHA-pinned actions; Dependabot updates the SHA and the version comment.
+  # Major versions arrive as separate pull requests.
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    groups:
+      actions-minor-and-patch:
+        update-types: [minor, patch]

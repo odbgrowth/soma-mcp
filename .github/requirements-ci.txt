@@ -1,0 +1,6 @@
+# Exact versions of the tools CI and the release workflow run outside the
+# project's own dev extra. Pinned for reproducible runs; Dependabot proposes bumps.
+build==1.6.1
+twine==7.0.0
+pip-audit==2.10.1
+uv==0.13.0

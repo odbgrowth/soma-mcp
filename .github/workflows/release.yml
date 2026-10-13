@@ -1,0 +1,129 @@
+name: Release
+
+# A release starts only from an annotated tag vMAJOR.MINOR.PATCH that a human
+# created after approval (RELEASE.md). This workflow verifies the tagged commit,
+# builds and attests the artifacts, and creates the GitHub Release. It never
+# publishes to PyPI and never deploys anything.
+on:
+  push:
+    tags:
+      - "v*.*.*"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false # never cancel a release half-way
+
+jobs:
+  verify:
+    name: Verify the tagged commit (full CI)
+    uses: ./.github/workflows/ci.yml
+
+  release:
+    name: Build, attest and create the GitHub Release
+    needs: verify
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    # Configure required reviewers on this environment to add a human gate
+    # between "tag pushed" and "release published" (RELEASE.md, step 7).
+    environment: release
+    permissions:
+      contents: write # create the GitHub Release and upload its assets
+      id-token: write # Sigstore certificate for the build provenance attestation
+      attestations: write # store the attestation on the repository
+    env:
+      TAG: ${{ github.ref_name }}
+    steps:
+      # Full history and all tags (annotations preserved since checkout v6.0.2):
+      # needed for the annotated-tag check and the compare link to the previous tag.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.13"
+
+      - name: Tag must be annotated and match the package version and changelog
+        run: |
+          if [ "$(git cat-file -t "refs/tags/$TAG")" != "tag" ]; then
+            echo "::error::$TAG is a lightweight tag; release tags must be annotated (git tag -a)"
+            exit 1
+          fi
+          python tools/check_release.py --tag "$TAG" --notes "$RUNNER_TEMP/changelog-notes.md"
+
+      - name: Install CI tools
+        run: python -m pip install -r .github/requirements-ci.txt
+      - name: Build sdist and wheel
+        run: python -m build
+      - name: twine check
+        run: python -m twine check --strict dist/*
+      - name: Install the wheel in a clean environment and smoke-test it
+        run: |
+          python -m venv "$RUNNER_TEMP/wheel"
+          "$RUNNER_TEMP/wheel/bin/python" -m pip install --no-cache-dir dist/*.whl
+          cd "$RUNNER_TEMP"
+          "$RUNNER_TEMP/wheel/bin/python" -I "$GITHUB_WORKSPACE/tools/smoke_test.py" \
+            --expect-version "${TAG#v}"
+          "$RUNNER_TEMP/wheel/bin/soma-mcp" --version | tee "$RUNNER_TEMP/stack.txt"
+      - name: Checksums
+        run: |
+          cd dist
+          sha256sum soma_mcp-* > SHA256SUMS
+          cat SHA256SUMS
+
+      - name: Attest build provenance (wheel and sdist)
+        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4.2.2
+        with:
+          subject-path: dist/soma_mcp-*
+
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: release-${{ github.ref_name }}
+          path: dist/
+          if-no-files-found: error
+
+      - name: Release notes
+        run: |
+          VERSION="${TAG#v}"
+          PREVIOUS="$(git tag --list 'v*.*.*' --sort=-v:refname | grep -vx "$TAG" | head -n1 || true)"
+          {
+            cat "$RUNNER_TEMP/changelog-notes.md"
+            echo
+            echo "## Verify this release"
+            echo
+            echo "Built and smoke-tested by this workflow from the annotated tag \`$TAG\`:"
+            echo
+            echo '```text'
+            cat "$RUNNER_TEMP/stack.txt"
+            cat dist/SHA256SUMS
+            echo '```'
+            echo
+            echo '```bash'
+            echo "sha256sum --check SHA256SUMS"
+            echo "gh attestation verify soma_mcp-${VERSION}-py3-none-any.whl --repo $GITHUB_REPOSITORY"
+            echo '```'
+            echo
+            echo "Upgrade notes: [docs/upgrading.md](https://github.com/$GITHUB_REPOSITORY/blob/$TAG/docs/upgrading.md)."
+            if [ -n "$PREVIOUS" ]; then
+              echo "Changes: https://github.com/$GITHUB_REPOSITORY/compare/$PREVIOUS...$TAG"
+            else
+              echo "Commits: https://github.com/$GITHUB_REPOSITORY/commits/$TAG"
+            fi
+          } > "$RUNNER_TEMP/release-notes.md"
+          cat "$RUNNER_TEMP/release-notes.md"
+
+      - name: Create or update the GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          TITLE="SOMA MCP ${TAG#v}"
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release upload "$TAG" dist/* --clobber
+            gh release edit "$TAG" --title "$TITLE" --notes-file "$RUNNER_TEMP/release-notes.md"
+          else
+            gh release create "$TAG" dist/* --verify-tag --title "$TITLE" \
+              --notes-file "$RUNNER_TEMP/release-notes.md"
+          fi
