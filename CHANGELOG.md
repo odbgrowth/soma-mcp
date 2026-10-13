@@ -136,7 +136,10 @@ MCP protocol `2026-07-28`, plus the handshake revisions `2024-11-05` to
 - Private deployment details (hostnames, container topology, deployment
   scripts that do not exist in this repository) were replaced by generic
   guidance; `docs/architecture.md` separates this repository's release process
-  from any private production deployment.
+  from any private production deployment. The Codex project configuration no
+  longer names a private SOMA endpoint; configure your own deployment in
+  `~/.codex/config.toml`. CI now checks the configuration files for non-public
+  hosts too.
 - New: [`CHANGELOG.md`](CHANGELOG.md), [`RELEASE.md`](RELEASE.md),
   [`docs/upgrading.md`](docs/upgrading.md),
   [ADR-003](docs/adr/003-mcp-sdk-v2-fastmcp4-upgrade.md).

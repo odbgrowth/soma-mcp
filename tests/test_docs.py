@@ -46,7 +46,15 @@ URL_HOST = re.compile(r"https?://([^/\s)>\"'`]+)")
 PUBLIC_HOSTS = {
     "github.com", "modelcontextprotocol.io", "img.shields.io", "semver.org",
     "keepachangelog.com", "docs.pypi.org", "datatracker.ietf.org",
+    "mcp.linear.app",  # Linear's public MCP endpoint (.codex/config.toml)
 }
+# Configuration that ships with the repository follows the same rule; a private
+# MCP endpoint belongs in the user-level ~/.codex/config.toml.
+CONFIG = sorted(
+    path for pattern in (".codex/**/*", ".github/**/*", ".devflows/*", "*.toml", "*.yaml",
+                         ".env.example")
+    for path in ROOT.glob(pattern) if path.is_file() and path.suffix != ".md"
+)
 
 STALE = {
     "jlowin/fastmcp": "FastMCP moved to github.com/PrefectHQ/fastmcp",
@@ -102,7 +110,7 @@ def test_no_stale_claims(doc: Path):
     assert not found, f"{_rel(doc)} contains stale statements: {found}"
 
 
-@pytest.mark.parametrize("doc", [*CURRENT, ROOT / ".env.example"], ids=_rel)
+@pytest.mark.parametrize("doc", [*CURRENT, *CONFIG], ids=_rel)
 def test_only_public_hosts_and_placeholders(doc: Path):
     hosts = set(URL_HOST.findall(doc.read_text(encoding="utf-8")))
     private = {host for host in hosts
