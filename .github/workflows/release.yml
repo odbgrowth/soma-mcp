@@ -1,9 +1,11 @@
 name: Release
 
-# A release starts only from an annotated tag vMAJOR.MINOR.PATCH that a human
-# created after approval (RELEASE.md). This workflow verifies the tagged commit,
-# builds and attests the artifacts, and creates the GitHub Release. It never
-# publishes to PyPI and never deploys anything.
+# A release starts only from an annotated tag vMAJOR.MINOR.PATCH on a commit that
+# is already on main, created by a human after approval (RELEASE.md). This
+# workflow verifies that commit, builds and smoke-tests the artifacts without
+# any write permission, then attests them and creates the GitHub Release in a
+# separate job that runs no third-party Python. It never publishes to PyPI and
+# never deploys anything.
 on:
   push:
     tags:
@@ -21,23 +23,20 @@ jobs:
     name: Verify the tagged commit (full CI)
     uses: ./.github/workflows/ci.yml
 
-  release:
-    name: Build, attest and create the GitHub Release
+  build:
+    name: Build and smoke-test the artifacts (read-only)
     needs: verify
     runs-on: ubuntu-24.04
     timeout-minutes: 15
-    # Configure required reviewers on this environment to add a human gate
-    # between "tag pushed" and "release published" (RELEASE.md, step 7).
-    environment: release
+    # This job installs and runs third-party code (build backend, CI tools, the
+    # wheel's dependencies), so it holds no write or OIDC permission.
     permissions:
-      contents: write # create the GitHub Release and upload its assets
-      id-token: write # Sigstore certificate for the build provenance attestation
-      attestations: write # store the attestation on the repository
+      contents: read
     env:
       TAG: ${{ github.ref_name }}
     steps:
       # Full history and all tags (annotations preserved since checkout v6.0.2):
-      # needed for the annotated-tag check and the compare link to the previous tag.
+      # needed for the annotated-tag and main-ancestry checks and the compare link.
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
@@ -46,13 +45,18 @@ jobs:
         with:
           python-version: "3.13"
 
-      - name: Tag must be annotated and match the package version and changelog
+      - name: Tag must be annotated, on main, and match the version and changelog
         run: |
           if [ "$(git cat-file -t "refs/tags/$TAG")" != "tag" ]; then
             echo "::error::$TAG is a lightweight tag; release tags must be annotated (git tag -a)"
             exit 1
           fi
-          python tools/check_release.py --tag "$TAG" --notes "$RUNNER_TEMP/changelog-notes.md"
+          if ! git merge-base --is-ancestor "$GITHUB_SHA" origin/main; then
+            echo "::error::$TAG points at a commit that is not on main"
+            exit 1
+          fi
+          mkdir -p release-meta
+          python tools/check_release.py --tag "$TAG" --notes release-meta/changelog-notes.md
 
       - name: Install CI tools
         run: python -m pip install -r .github/requirements-ci.txt
@@ -67,37 +71,26 @@ jobs:
           cd "$RUNNER_TEMP"
           "$RUNNER_TEMP/wheel/bin/python" -I "$GITHUB_WORKSPACE/tools/smoke_test.py" \
             --expect-version "${TAG#v}"
-          "$RUNNER_TEMP/wheel/bin/soma-mcp" --version | tee "$RUNNER_TEMP/stack.txt"
+          "$RUNNER_TEMP/wheel/bin/soma-mcp" --version > "$GITHUB_WORKSPACE/release-meta/stack.txt"
       - name: Checksums
         run: |
           cd dist
           sha256sum soma_mcp-* > SHA256SUMS
           cat SHA256SUMS
 
-      - name: Attest build provenance (wheel and sdist)
-        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4.2.2
-        with:
-          subject-path: dist/soma_mcp-*
-
-      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
-        with:
-          name: release-${{ github.ref_name }}
-          path: dist/
-          if-no-files-found: error
-
       - name: Release notes
         run: |
           VERSION="${TAG#v}"
           PREVIOUS="$(git tag --list 'v*.*.*' --sort=-v:refname | grep -vx "$TAG" | head -n1 || true)"
           {
-            cat "$RUNNER_TEMP/changelog-notes.md"
+            cat release-meta/changelog-notes.md
             echo
             echo "## Verify this release"
             echo
             echo "Built and smoke-tested by this workflow from the annotated tag \`$TAG\`:"
             echo
             echo '```text'
-            cat "$RUNNER_TEMP/stack.txt"
+            cat release-meta/stack.txt
             cat dist/SHA256SUMS
             echo '```'
             echo
@@ -112,18 +105,66 @@ jobs:
             else
               echo "Commits: https://github.com/$GITHUB_REPOSITORY/commits/$TAG"
             fi
-          } > "$RUNNER_TEMP/release-notes.md"
-          cat "$RUNNER_TEMP/release-notes.md"
+          } > release-meta/release-notes.md
+          cat release-meta/release-notes.md
+
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: release-dist
+          path: dist/
+          if-no-files-found: error
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: release-notes
+          path: release-meta/release-notes.md
+          if-no-files-found: error
+
+  publish:
+    name: Attest and create the GitHub Release
+    needs: build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    # Required reviewers on this environment are the human gate between "tag
+    # pushed" and "release published" (RELEASE.md, Repository settings).
+    environment: release
+    # The only job with write access. It runs no pip install and no project
+    # code: it checks the digests, attests and calls the GitHub CLI.
+    permissions:
+      contents: write # create the GitHub Release and upload its assets
+      id-token: write # Sigstore certificate for the build provenance attestation
+      attestations: write # store the attestation on the repository
+    env:
+      TAG: ${{ github.ref_name }}
+    steps:
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: release-dist
+          path: dist
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: release-notes
+          path: release-meta
+      - name: Verify checksums
+        run: |
+          cd dist
+          sha256sum --check --strict SHA256SUMS
+          ls -l
+
+      - name: Attest build provenance (wheel and sdist)
+        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4.2.2
+        with:
+          subject-path: dist/soma_mcp-*
 
       - name: Create or update the GitHub Release
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           TITLE="SOMA MCP ${TAG#v}"
-          if gh release view "$TAG" >/dev/null 2>&1; then
-            gh release upload "$TAG" dist/* --clobber
-            gh release edit "$TAG" --title "$TITLE" --notes-file "$RUNNER_TEMP/release-notes.md"
+          if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            gh release upload "$TAG" dist/* --clobber --repo "$GITHUB_REPOSITORY"
+            gh release edit "$TAG" --title "$TITLE" --notes-file release-meta/release-notes.md \
+              --repo "$GITHUB_REPOSITORY"
           else
             gh release create "$TAG" dist/* --verify-tag --title "$TITLE" \
-              --notes-file "$RUNNER_TEMP/release-notes.md"
+              --notes-file release-meta/release-notes.md --repo "$GITHUB_REPOSITORY"
           fi

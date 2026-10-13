@@ -13,7 +13,8 @@ A [FastMCP](https://github.com/PrefectHQ/fastmcp) transport shell
 (`src/soma_mcp/engine.py`). It speaks JSON-RPC 2.0 over Streamable HTTP at
 `/mcp`, implements MCP revision **2026-07-28** (and the older handshake
 revisions through the MCP Python SDK), authenticates clients with OAuth 2.1
-through Auth0, and advertises the `tools` capability only.
+through Auth0, and exposes its memory through tools only (no prompts or
+resources).
 
 ## Using a running instance
 

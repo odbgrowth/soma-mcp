@@ -122,10 +122,10 @@ def captured_run(monkeypatch):
     return calls
 
 
-def test_cli_unauthenticated_serves_loopback_only(captured_run):
+def test_cli_unauthenticated_serves_loopback_with_a_strict_guard(captured_run):
     server.main([])
     assert captured_run == [{"transport": "http", "host": "127.0.0.1", "port": 8000,
-                             "host_origin_protection": "auto"}]
+                             "show_banner": False, "host_origin_protection": True}]
 
 
 def test_cli_warns_when_unauthenticated_server_is_exposed(monkeypatch, captured_run, caplog):
@@ -133,6 +133,27 @@ def test_cli_warns_when_unauthenticated_server_is_exposed(monkeypatch, captured_
     monkeypatch.setenv("MCP_PORT", "8123")
     with caplog.at_level(logging.WARNING, logger="soma_mcp"):
         server.main([])
+    # Still strict: the guard also covers non-loopback binds without auth.
     assert captured_run == [{"transport": "http", "host": "0.0.0.0", "port": 8123,
-                             "host_origin_protection": "auto"}]
+                             "show_banner": False, "host_origin_protection": True}]
     assert "UNAUTHENTICATED server bound to 0.0.0.0" in caplog.text
+
+
+def test_cli_authenticated_binds_all_interfaces_and_defers_the_guard(auth_env, captured_run):
+    server.main([])
+    assert captured_run == [{"transport": "http", "host": "0.0.0.0", "port": 8000,
+                             "show_banner": False, "host_origin_protection": None}]
+
+
+def test_serve_runs_a_custom_engine_with_the_same_defaults(captured_run, monkeypatch):
+    from soma_mcp import InMemoryEngine, serve
+
+    built = []
+    original = server.build_server
+    monkeypatch.setattr(server, "build_server",
+                        lambda engine=None: built.append(engine) or original(engine))
+    engine = InMemoryEngine()
+    serve(engine)
+    assert built == [engine]
+    assert captured_run[0]["host"] == "127.0.0.1"
+    assert captured_run[0]["host_origin_protection"] is True

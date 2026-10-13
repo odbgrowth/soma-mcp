@@ -51,6 +51,20 @@ def _payload(result: Any) -> Any:
     return data["result"] if set(data) == {"result"} else data
 
 
+# What FastMCP 4.1 advertises for SOMA, pinned so a FastMCP upgrade that changes
+# the wire surface fails here and the docs (specification.md §4) get updated.
+# Only tools are populated; prompts and resources list empty.
+CAPABILITIES = {
+    "auto": {"logging": {}, "prompts": {"listChanged": False},
+             "resources": {"subscribe": False, "listChanged": False},
+             "tools": {"listChanged": False},
+             "extensions": {"io.modelcontextprotocol/ui": {}}},
+    "legacy": {"logging": {}, "prompts": {"listChanged": True},
+               "resources": {"subscribe": False, "listChanged": True},
+               "tools": {"listChanged": True}},
+}
+
+
 @pytest.mark.parametrize(("mode", "protocol"), ERAS)
 async def test_discovery_identity_and_instructions(local_mode, mode, protocol):
     async with FastMCPClient(server.build_server(), mode=mode) as client:
@@ -60,7 +74,10 @@ async def test_discovery_identity_and_instructions(local_mode, mode, protocol):
         assert client.server_info.version == soma_mcp.__version__
         assert client.instructions == build_instructions()
         assert client.server_capabilities is not None
-        assert client.server_capabilities.tools is not None
+        assert client.server_capabilities.model_dump(
+            by_alias=True, exclude_none=True, mode="json") == CAPABILITIES[mode]
+        assert await client.list_prompts() == []
+        assert await client.list_resources() == []
 
 
 @pytest.mark.parametrize(("mode", "protocol"), ERAS)
@@ -85,11 +102,14 @@ async def test_whoami_search_and_guarded_write(local_mode, mode, protocol):
         saved = _payload(await client.call_tool("soma_write", {"text": "the sky is blue"}))
         assert saved == {"status": "saved", "chunks": 1}
 
+        fenced = _DATA_BOUNDARY + "the sky is blue"
         hits = _payload(await client.call_tool("soma_search", {"query": "sky"}))
-        assert hits[0]["tekst"] == _DATA_BOUNDARY + "the sky is blue"
+        assert hits[0]["tekst"] == fenced
+        debug = _payload(await client.call_tool("soma_debug", {"query": "sky"}))
+        assert debug["stage1_search"][0]["snippet"] == fenced
 
         preview = _payload(await client.call_tool("soma_delete", {"base_id": "note-ref-0001"}))
-        assert "preview" in preview and "status" not in preview
+        assert preview["preview"] == fenced and "status" not in preview
         deleted = _payload(await client.call_tool(
             "soma_delete", {"base_id": "note-ref-0001", "confirm": True}))
         assert deleted["status"] == "deleted"
@@ -211,5 +231,25 @@ async def test_authenticated_subject_reaches_the_allowlist(monkeypatch, serve_ht
     stranger = await call("stranger-token", "soma_search", {"query": "x"})
     assert stranger["result"][0]["error"].startswith("no access to this instance")
 
-    with pytest.raises(Exception):  # noqa: B017 - any transport/auth failure is fine
-        await call("forged-token", "soma_whoami", {})
+    # No token or a forged one never reaches a tool: the transport answers 401.
+    async with httpx2.AsyncClient() as raw:
+        request = {"jsonrpc": "2.0", "id": 1, "method": "tools/list"}
+        assert (await raw.post(http.url, json=request)).status_code == 401
+        forged = await raw.post(http.url, json=request,
+                                headers={"Authorization": "Bearer forged-token"})
+        assert forged.status_code == 401
+
+
+async def test_unauthenticated_transport_rejects_dns_rebinding(local_mode, serve_http):
+    """The Host/Origin guard serve() applies to an unauthenticated server."""
+    guard = {"host_origin_protection": server._host_origin_protection(authenticated=False)}
+    http = serve_http(server.build_server(), **guard)
+    request = {"jsonrpc": "2.0", "id": 1, "method": "tools/list"}
+    async with httpx2.AsyncClient() as raw:
+        rebound = await raw.post(http.url, json=request, headers={"Host": "evil.example:8000"})
+        assert rebound.status_code == 421
+        foreign = await raw.post(http.url, json=request,
+                                 headers={"Origin": "http://evil.example"})
+        assert foreign.status_code == 403
+    async with SDKClient(http.url) as client:  # a local client still works
+        assert len((await client.list_tools()).tools) == len(ANNOTATIONS)

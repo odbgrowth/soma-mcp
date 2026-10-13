@@ -23,8 +23,9 @@ and `soma_search` for a single fact.
 ## 2. ChatGPT
 
 Add the server as a connector (remote MCP server URL `https://<your-host>/mcp`).
-Dynamic client registration means there is no manual app setup; sign in when
-asked.
+Client registration is automatic (Client ID Metadata Documents, or dynamic
+client registration for older clients), so there is no manual app setup; sign
+in when asked.
 
 ## 3. Cursor, VS Code and other editors
 

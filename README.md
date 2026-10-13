@@ -116,16 +116,16 @@ over your own retrieval stack and inject it:
 ```python
 from my_stack import MyEngine  # your implementation of soma_mcp.Engine
 
-from soma_mcp import build_server
+from soma_mcp import serve
 
-mcp = build_server(MyEngine())
-mcp.run(transport="http", host="127.0.0.1", port=8000)
+serve(MyEngine())  # same configuration, bind address and DNS-rebinding guard as soma-mcp
 ```
 
 The `Engine` surface is nine methods (search, filter, get, assemble context,
 add/update/delete note, full note, log feedback). The tool kernel, guards and
-prompt-injection fence are reused unchanged. Prefer `soma-mcp` for serving: it
-applies the bind-address and DNS-rebinding defaults described above.
+prompt-injection fence are reused unchanged. `build_server(engine)` returns the
+FastMCP server itself if you need to mount it elsewhere; then you own the
+transport settings, including the Host/Origin guard.
 
 ## Production (authenticated)
 
@@ -139,7 +139,7 @@ running unauthenticated. Details: [`docs/auth.md`](docs/auth.md),
 | `AUTH0_CONFIG_URL`, `AUTH0_CLIENT_ID`, `AUTH0_CLIENT_SECRET`, `AUTH0_AUDIENCE`, `BASE_URL` | OAuth 2.1 through Auth0. All or none. |
 | `MCP_TOEGANG_SUBJECTS` | Comma-separated allowlist of token subjects that may use the instance. |
 | `MCP_SCHRIJF_SUBJECTS` | Allowlist of subjects that may write, update and delete. |
-| `MCP_SINGLE_USER` | `1` to run deliberately without an allowlist. Otherwise the guards fail closed. |
+| `MCP_SINGLE_USER` | `1` to run deliberately without an allowlist. Otherwise the guards fail closed. With Auth0, prefer an allowlist: single-user mode admits every account that can sign in to the Auth0 application. |
 | `MCP_RATE_LIMIT` | Calls per minute per subject (default `30`; `0` disables). |
 | `MCP_JWT_SIGNING_KEY`, `MCP_STORAGE_ENCRYPTION_KEY` | Both or neither: encrypted OAuth state on the data volume, so connectors survive restarts (`pip install ".[auth]"`). |
 | `MCP_HOST`, `MCP_PORT` | Bind address. Default `0.0.0.0:8000` with Auth0, `127.0.0.1:8000` without. |
@@ -152,9 +152,10 @@ running unauthenticated. Details: [`docs/auth.md`](docs/auth.md),
 - **Fail-closed configuration:** partial Auth0 or token-storage settings stop the
   server at startup.
 - **Encrypted token storage:** Fernet-encrypted `FileTreeStore` with sanitized
-  keys (0.1.x used the pickle-based `DiskStore`, CVE-2025-69872).
-- **Prompt-injection fence:** every memory string is returned marked as data,
-  not instructions.
+  keys in a directory only the service user can write (0.1.x used the
+  pickle-based `DiskStore`, CVE-2025-69872).
+- **Prompt-injection fence:** every memory text a tool returns is marked as
+  data, not instructions.
 - **Safety valves:** per-subject rate limit, JSONL audit log of writes, two-step
   delete, size caps, masked internal errors.
 
@@ -164,9 +165,9 @@ Threat model: [`docs/security.md`](docs/security.md). Reporting vulnerabilities:
 ## Public Python API
 
 Supported imports: `soma_mcp.Engine`, `soma_mcp.InMemoryEngine`,
-`soma_mcp.Kernel`, `soma_mcp.build_server`, `soma_mcp.main` and
-`soma_mcp.__version__`. `soma_mcp.config.ConfigurationError` is what
-`build_server` raises on a partial configuration. Everything else is internal
+`soma_mcp.Kernel`, `soma_mcp.build_server`, `soma_mcp.serve`, `soma_mcp.main`
+and `soma_mcp.__version__`. `soma_mcp.config.ConfigurationError` is what
+`build_server` and `serve` raise on a partial configuration. Everything else is internal
 and may change in a minor release.
 
 ## Development

@@ -72,10 +72,15 @@ def _token_storage(storage: TokenStorage) -> AsyncKeyValue:
 
     Replaces the pre-0.2 DiskStore: diskcache unpickles whatever it finds on
     disk (CVE-2025-69872), FileTreeStore writes one JSON file per key. The V1
-    sanitization strategies are FastMCP's own defaults: they hash keys and
-    collection names that are not filesystem-safe (URL-shaped OAuth client ids,
-    "..") so a client-supplied id can never steer a path. Changing them later
-    orphans every stored entry, so they are fixed here.
+    sanitization strategies are FastMCP's own defaults: they replace characters
+    that are not filesystem-safe and add a hash suffix (URL-shaped OAuth client
+    ids, ".."), so a client-supplied id can never steer a path. Changing them
+    later orphans every stored entry, so they are fixed here.
+
+    Fernet gives confidentiality at rest. It does not give the store integrity:
+    the upstream wrapper returns an entry written without encryption as-is, and
+    a ciphertext copied into another entry still decrypts. Integrity rests on
+    the directory being writable only by the service user (0700 here).
     """
     from cryptography.fernet import Fernet
     from key_value.aio.stores.filetree import (
@@ -97,14 +102,19 @@ def _token_storage(storage: TokenStorage) -> AsyncKeyValue:
 
     directory = storage.directory
     directory.mkdir(mode=0o700, parents=True, exist_ok=True)
+    try:
+        directory.chmod(0o700)  # mkdir's mode does not tighten an existing directory
+    except OSError:
+        log.warning("Could not restrict %s to mode 0700; make it writable by the "
+                    "service user only.", directory)
     store = FileTreeStore(
         data_directory=directory,
         key_sanitization_strategy=FileTreeV1KeySanitizationStrategy(directory),
         collection_sanitization_strategy=FileTreeV1CollectionSanitizationStrategy(directory),
     )
-    # Undecryptable entries (rotated key, tampering) read as missing, so the
-    # client re-registers instead of the OAuth endpoints failing. Nothing is
-    # ever returned or written in plaintext.
+    # Entries that do not decrypt (rotated key, a tampered ciphertext) read as
+    # missing, so the client re-registers instead of the OAuth endpoints failing.
+    # Everything this server writes is encrypted.
     return FernetEncryptionWrapper(key_value=store, fernet=fernet, raise_on_decryption_error=False)
 
 
@@ -131,6 +141,10 @@ def _build_auth(config: AuthConfig | None) -> AuthProvider | None:
     # directory, which a container rebuild without a volume loses. With
     # MCP_JWT_SIGNING_KEY + MCP_STORAGE_ENCRYPTION_KEY the store lives on the
     # SOMA data volume and connectors survive rebuilds.
+    if single_user() and not os.environ.get("MCP_TOEGANG_SUBJECTS", "").strip():
+        log.warning("MCP_SINGLE_USER=1 with Auth0 and no MCP_TOEGANG_SUBJECTS: every "
+                    "account that can sign in to the Auth0 application gets full read, "
+                    "write and delete access. Set MCP_TOEGANG_SUBJECTS instead.")
     persistence: dict[str, Any] = {}
     if config.storage is not None:
         _warn_on_legacy_token_store()
@@ -259,6 +273,42 @@ def build_server(engine: Engine | None = None) -> FastMCP:
     return mcp
 
 
+def _host_origin_protection(authenticated: bool) -> bool | None:
+    """FastMCP Host/Origin guard setting for the HTTP transport.
+
+    Unauthenticated: strict. Every request must carry a local Host (127.0.0.1,
+    localhost, ::1 or the address it arrived on) and a matching Origin, on any
+    bind address, so a web page cannot reach the server through DNS rebinding.
+    Authenticated: None, i.e. FastMCP's own setting (off unless the operator sets
+    FASTMCP_HTTP_HOST_ORIGIN_PROTECTION / FASTMCP_HTTP_ALLOWED_HOSTS). Every
+    request needs a bearer token, and a reverse proxy forwards the public Host
+    header, which a default guard would reject.
+    """
+    return None if authenticated else True
+
+
+def serve(engine: Engine | None = None) -> None:
+    """Serve SOMA MCP over Streamable HTTP at /mcp with the safe defaults.
+
+    The supported way to run your own Engine: the same configuration, bind
+    address and DNS-rebinding guard as the `soma-mcp` command. Raises
+    ConfigurationError on a partial Auth0 or token-storage configuration.
+    """
+    auth_config = load_auth_config()
+    authenticated = auth_config is not None
+    host, port = bind_address(authenticated=authenticated)
+    mcp = build_server(engine)
+    if not authenticated and not is_loopback(host):
+        log.warning("UNAUTHENTICATED server bound to %s: anyone who can reach this "
+                    "interface can call the tools. Use MCP_HOST=127.0.0.1 or configure "
+                    "Auth0 (see docs/security.md).", host)
+    log.info("Starting %s on http://%s:%d/mcp", version_report(), host, port)
+    # show_banner=False also skips FastMCP's banner-time update check, so a
+    # private server makes no unsolicited request to PyPI.
+    mcp.run(transport="http", host=host, port=port, show_banner=False,
+            host_origin_protection=_host_origin_protection(authenticated))
+
+
 def main(argv: Sequence[str] | None = None) -> None:
     """Console entry point: `soma-mcp` serves Streamable HTTP at /mcp."""
     parser = argparse.ArgumentParser(
@@ -273,25 +323,9 @@ def main(argv: Sequence[str] | None = None) -> None:
 
     logging.basicConfig(level=logging.INFO)
     try:
-        auth_config = load_auth_config()
-        host, port = bind_address(authenticated=auth_config is not None)
-        mcp = build_server()
+        serve()
     except ConfigurationError as exc:
         raise SystemExit(f"soma-mcp: configuration error: {exc}") from None
-
-    if auth_config is None and not is_loopback(host):
-        log.warning("UNAUTHENTICATED server bound to %s: anyone who can reach this "
-                    "interface can call the tools. Use MCP_HOST=127.0.0.1 or configure "
-                    "Auth0 (see docs/security.md).", host)
-    log.info("Starting %s on http://%s:%d/mcp", version_report(), host, port)
-    # DNS-rebinding guard: without Host/Origin validation a web page open in the
-    # user's browser can reach a loopback server through a rebound DNS name and,
-    # in single-user mode, read or delete memory. "auto" validates loopback-bound
-    # servers only. Authenticated deployments keep FastMCP's default (off): every
-    # request needs a bearer token, and a reverse proxy on the same host forwards
-    # the public Host header, which the guard would reject.
-    mcp.run(transport="http", host=host, port=port,
-            host_origin_protection=False if auth_config is not None else "auto")
 
 
 if __name__ == "__main__":

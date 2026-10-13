@@ -22,9 +22,11 @@ auth = Auth0Provider(
 )
 ```
 
-`config` comes from `soma_mcp.config.load_auth_config()`, which reads only
-explicit environment variables (FastMCP's own environment settings are not
-used) and is **all-or-nothing**:
+`config` comes from `soma_mcp.config.load_auth_config()`, which reads SOMA's own
+explicit environment variables (surrounding whitespace stripped) and is
+**all-or-nothing**. FastMCP's `FASTMCP_*` settings, which FastMCP also reads
+from a `.env` file in the working directory, do not configure authentication
+here; they still apply to FastMCP's general behavior:
 
 | Environment | Result |
 |---|---|
@@ -36,11 +38,16 @@ A missing variable therefore never downgrades a production setup to an open
 server. Error messages name the missing variables and never print values.
 
 The provider implements the MCP authorization flow: OAuth protected resource
-metadata (RFC 9728), authorization server metadata (RFC 8414), dynamic client
-registration (RFC 7591) and client ID metadata documents, with Auth0 as the
-upstream identity provider. For a user it is "connect, sign in at Auth0,
-connected". In the Auth0 application, set the allowed callback URL to
-`BASE_URL` + `/auth/callback`.
+metadata (RFC 9728), authorization server metadata (RFC 8414), client ID
+metadata documents (the 2026-07-28 registration mechanism) and dynamic client
+registration (RFC 7591, deprecated in 2026-07-28, kept for older clients), with
+Auth0 as the upstream identity provider and a consent screen before the
+redirect. For a user it is "connect, sign in at Auth0, connected". In the Auth0
+application, set the allowed callback URL to `BASE_URL` + `/auth/callback`.
+
+`BASE_URL` must be the public `https://` URL in production. Client redirect URIs
+are not restricted by SOMA (FastMCP's default); the consent screen is what a
+user sees before an unknown client gets a token.
 
 ## 2. Token storage
 
@@ -52,16 +59,20 @@ together, and only with Auth0) SOMA passes:
 
 - `jwt_signing_key`: signs the tokens FastMCP issues, so they stay valid across
   restarts;
-- `client_storage`: a `FileTreeStore` in `$SOMA_DATA/mcp_oauth/`, wrapped in
-  `FernetEncryptionWrapper` with `MCP_STORAGE_ENCRYPTION_KEY`. One encrypted JSON
-  file per entry; key and collection names go through FastMCP's V1 sanitization
-  strategies, so URL-shaped client ids are hashed instead of becoming paths.
+- `client_storage`: a `FileTreeStore` in `$SOMA_DATA/mcp_oauth/` (mode 0700),
+  wrapped in `FernetEncryptionWrapper` with `MCP_STORAGE_ENCRYPTION_KEY`. One
+  encrypted JSON file per entry; key and collection names go through FastMCP's
+  V1 sanitization strategies, which replace unsafe characters and add a hash
+  suffix, so a URL-shaped client id never becomes a path.
 
-Generate the encryption key with
-`python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"`.
-An invalid key stops startup. Entries that no longer decrypt (after a key
-rotation, or tampering) read as missing: the client registers again. Nothing is
-ever read or written as plaintext.
+Generate the keys with
+`python -c "import secrets; print(secrets.token_urlsafe(48))"` (signing key) and
+`python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"`
+(encryption key). An invalid encryption key stops startup. Entries that no
+longer decrypt (after a key rotation, or a tampered ciphertext) read as missing:
+the client registers again. Encryption protects the entries' confidentiality;
+the store's integrity depends on only the service user being able to write the
+directory (see [`security.md`](security.md) §5).
 
 **Without them**, FastMCP 4's default applies: the signing key is derived from
 `AUTH0_CLIENT_SECRET`, and the store is an encrypted `FileTreeStore` in the
@@ -132,9 +143,12 @@ Your own instance:
 ```bash
 MCP_TOEGANG_SUBJECTS=auth0|yourSubjectId
 MCP_SCHRIJF_SUBJECTS=auth0|yourSubjectId
-# or, deliberately and only for a single-user instance:
-MCP_SINGLE_USER=1
 ```
+
+`MCP_SINGLE_USER=1` skips the allowlists. Without Auth0 that is the local quick
+start. With Auth0 it admits **every account that can sign in to the Auth0
+application** (sign-up and social logins included), so the server logs a
+warning; use the allowlists instead.
 
 Shared read, owner write:
 

@@ -24,14 +24,15 @@ kernel (`kernel.py`).
 ## 2. Transport
 
 ```bash
-soma-mcp    # mcp.run(transport="http", host=..., port=..., host_origin_protection=...)
+soma-mcp    # soma_mcp.serve(): build_server() + mcp.run(transport="http", ...)
 ```
 
 - Endpoint: `/mcp`. Behind a TLS-terminating proxy in production:
   `https://<your-host>/mcp`.
 - Bind address: `MCP_HOST`/`MCP_PORT`; default `0.0.0.0:8000` with Auth0 and
   `127.0.0.1:8000` without. The unauthenticated server validates `Host` and
-  `Origin` against DNS rebinding.
+  `Origin` strictly against DNS rebinding; with Auth0 the guard follows
+  FastMCP's `FASTMCP_HTTP_HOST_ORIGIN_PROTECTION` setting (off by default).
 - Streamable HTTP is the current MCP transport. stdio is not offered: SOMA is a
   long-running networked server, not a subprocess of one client.
 
@@ -59,9 +60,20 @@ handshake.
 
 ## 4. Capabilities
 
-SOMA advertises exactly one server capability: **`tools`**. It does not
-advertise `resources`, `prompts`, `completions` or `logging`, all optional. See
-[`compliance.md`](compliance.md) §3.
+SOMA's surface is **tools**: nine tools, listed by `tools/list`. FastMCP 4.1
+also advertises its framework defaults, which SOMA leaves empty or unused:
+
+| Capability | 2026-07-28 (`server/discover`) | Handshake era (`initialize`) | Content |
+|---|---|---|---|
+| `tools` | `listChanged: false` | `listChanged: true` | the nine SOMA tools |
+| `prompts` | `listChanged: false` | `listChanged: true` | none (`prompts/list` is empty) |
+| `resources` | `subscribe: false`, `listChanged: false` | `subscribe: false`, `listChanged: true` | none (`resources/list` is empty) |
+| `logging` | `{}` | `{}` | FastMCP's log notifications; SOMA sends none |
+| `extensions` | `io.modelcontextprotocol/ui` | not applicable | FastMCP default; SOMA ships no UI |
+
+The tool set never changes at runtime, so no list-changed notification is sent.
+`completions` is not advertised. `tests/test_transport.py` pins this table, so a
+FastMCP upgrade that changes it fails CI. See [`compliance.md`](compliance.md) §3.
 
 ## 5. Tool surface
 
@@ -90,8 +102,9 @@ SDK's snake_case attributes). A transport test asserts the wire form.
 - **Structured results.** Every tool returns a JSON object (a list result is
   wrapped by FastMCP as `{"result": [...]}`) in `structuredContent`, with the
   same JSON as text content.
-- **Fenced memory text.** Every memory string carries a data-boundary prefix
-  marking it as data, not instructions. See [`security.md`](security.md) §6.
+- **Fenced memory text.** Every memory text a tool returns carries a
+  data-boundary prefix marking it as data, not instructions; metadata labels do
+  not. See [`security.md`](security.md) §6.
 - **Denials are data.** Access, rate-limit and validation failures are ordinary
   results with an `error` field (`isError` stays false), so the calling model
   can read the reason and react.
@@ -119,7 +132,7 @@ Details: [`auth.md`](auth.md).
 | `AUTH0_CONFIG_URL`, `AUTH0_CLIENT_ID`, `AUTH0_CLIENT_SECRET`, `AUTH0_AUDIENCE`, `BASE_URL` | Auth0 OAuth configuration. All or none; partial sets refuse to start. |
 | `MCP_TOEGANG_SUBJECTS` | Comma-separated subjects allowed to use the instance. |
 | `MCP_SCHRIJF_SUBJECTS` | Comma-separated subjects allowed to write. |
-| `MCP_SINGLE_USER` | `1` to run deliberately without an allowlist. |
+| `MCP_SINGLE_USER` | `1` to run deliberately without an allowlist (with Auth0 this admits every account the tenant can sign in; the server warns). |
 | `MCP_RATE_LIMIT` | Calls per minute per subject (default `30`; `0` disables). |
 | `MCP_JWT_SIGNING_KEY`, `MCP_STORAGE_ENCRYPTION_KEY` | Both or neither: encrypted, persistent OAuth state in `$SOMA_DATA/mcp_oauth/`. |
 | `MCP_HOST`, `MCP_PORT` | Bind address; defaults depend on whether Auth0 is configured. |
@@ -128,7 +141,7 @@ Details: [`auth.md`](auth.md).
 ## 9. Versioning
 
 - **SOMA MCP version:** `soma_mcp.__version__` is the single source. It is the
-  package version, `serverInfo.version`, the first word of `soma-mcp --version`,
+  package version, `serverInfo.version`, the version in `soma-mcp --version`,
   and the release tag `v{version}`.
 - **Protocol revision:** negotiated per request by the MCP SDK. `soma-mcp
   --version` prints the revisions the installed SDK serves.

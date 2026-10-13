@@ -12,8 +12,10 @@ environment variables only. The rules fail closed:
 * Without authentication the HTTP server binds to loopback unless MCP_HOST says
   otherwise, so a local experiment is not reachable from the network by accident.
 
-Error messages name variables, never their values. Secret fields are excluded
-from the dataclass reprs so a logged config object cannot leak them.
+Values are stripped of surrounding whitespace (a trailing newline from a secret
+file is a mistake, never part of a key). Error messages name variables, never
+their values. Secret fields are excluded from the dataclass reprs so a logged
+config object cannot leak them.
 """
 
 from __future__ import annotations
@@ -62,8 +64,12 @@ class AuthConfig:
     storage: TokenStorage | None = None
 
 
+def _value(env: Mapping[str, str], name: str) -> str:
+    return env.get(name, "").strip()
+
+
 def _is_set(env: Mapping[str, str], name: str) -> bool:
-    return bool(env.get(name, "").strip())
+    return bool(_value(env, name))
 
 
 def data_dir(env: Mapping[str, str] | None = None) -> Path:
@@ -107,16 +113,16 @@ def load_auth_config(env: Mapping[str, str] | None = None) -> AuthConfig | None:
             )
         storage = TokenStorage(
             directory=data_dir(env) / TOKEN_STORE_DIRNAME,
-            jwt_signing_key=env["MCP_JWT_SIGNING_KEY"],
-            encryption_key=env["MCP_STORAGE_ENCRYPTION_KEY"],
+            jwt_signing_key=_value(env, "MCP_JWT_SIGNING_KEY"),
+            encryption_key=_value(env, "MCP_STORAGE_ENCRYPTION_KEY"),
         )
 
     return AuthConfig(
-        config_url=env["AUTH0_CONFIG_URL"],
-        client_id=env["AUTH0_CLIENT_ID"],
-        client_secret=env["AUTH0_CLIENT_SECRET"],
-        audience=env["AUTH0_AUDIENCE"],
-        base_url=env["BASE_URL"],
+        config_url=_value(env, "AUTH0_CONFIG_URL"),
+        client_id=_value(env, "AUTH0_CLIENT_ID"),
+        client_secret=_value(env, "AUTH0_CLIENT_SECRET"),
+        audience=_value(env, "AUTH0_AUDIENCE"),
+        base_url=_value(env, "BASE_URL"),
         storage=storage,
     )
 

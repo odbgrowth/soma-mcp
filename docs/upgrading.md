@@ -58,8 +58,11 @@ a file path. A migration would have to unpickle the old files, which is exactly
 the risk being removed; one re-registration per client is the safer price.
 
 Rotating `MCP_STORAGE_ENCRYPTION_KEY` later has the same effect: entries that no
-longer decrypt read as missing and clients register again. They are never read
-as plaintext.
+longer decrypt read as missing and clients register again.
+
+Fernet keeps the entries confidential at rest; it does not stop someone who can
+write to `mcp_oauth/` from planting or swapping entries. 0.2.0 restricts the
+directory to mode 0700; keep the data volume writable by the service user only.
 
 ### Protocol and client impact
 
@@ -80,6 +83,10 @@ as plaintext.
 - `build_server(engine)`, `Engine`, `InMemoryEngine`, `Kernel` and `main` keep
   their signatures. `build_server` now raises
   `soma_mcp.config.ConfigurationError` for a partial Auth0 or storage setup.
+- New: `soma_mcp.serve(engine)` runs your engine with the same bind address and
+  DNS-rebinding guard as `soma-mcp`. Calling `build_server(...).run(...)`
+  yourself skips that guard unless you pass `host_origin_protection=True`.
+- `cryptography>=50` is now a base dependency (it was only implied before).
 - If you used the MCP SDK v1 client (`ClientSession`, `streamablehttp_client`),
   move to `mcp.Client`; see [`examples.md`](examples.md). Headers such as
   `Authorization` go on an `httpx2.AsyncClient` passed to

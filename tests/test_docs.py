@@ -40,6 +40,14 @@ REPO_PATH = re.compile(
 PYTHON_BLOCK = re.compile(r"```python\n(.*?)```", re.S)
 PLACEHOLDER_MODULES = {"my_stack"}
 
+# Public documentation names only public hosts and placeholders; a private
+# deployment's host name fails here without this file having to spell it out.
+URL_HOST = re.compile(r"https?://([^/\s)>\"'`]+)")
+PUBLIC_HOSTS = {
+    "github.com", "modelcontextprotocol.io", "img.shields.io", "semver.org",
+    "keepachangelog.com", "docs.pypi.org", "datatracker.ietf.org",
+}
+
 STALE = {
     "jlowin/fastmcp": "FastMCP moved to github.com/PrefectHQ/fastmcp",
     "streamablehttp_client": "removed in MCP SDK v2; use mcp.Client",
@@ -47,7 +55,6 @@ STALE = {
     "session.initialize()": "MCP SDK v1 client pattern; use mcp.Client",
     "deploy_prod.sh": "no deployment scripts in this public repository",
     "deploy_staging.sh": "no deployment scripts in this public repository",
-    "usesiva": "private host names do not belong in public docs",
     "release candidate": "2026-07-28 is the current stable revision",
     "is in draft": "2026-07-28 is the current stable revision",
     "fastmcp>=3": "FastMCP 4 is the supported line",
@@ -93,6 +100,15 @@ def test_no_stale_claims(doc: Path):
     text = doc.read_text(encoding="utf-8")
     found = {needle: why for needle, why in STALE.items() if needle in text}
     assert not found, f"{_rel(doc)} contains stale statements: {found}"
+
+
+@pytest.mark.parametrize("doc", [*CURRENT, ROOT / ".env.example"], ids=_rel)
+def test_only_public_hosts_and_placeholders(doc: Path):
+    hosts = set(URL_HOST.findall(doc.read_text(encoding="utf-8")))
+    private = {host for host in hosts
+               if host.split(":")[0] not in PUBLIC_HOSTS | {"127.0.0.1", "localhost"}
+               and not host.startswith("<") and not host.endswith(".example")}
+    assert not private, f"{_rel(doc)} names non-public hosts: {sorted(private)}"
 
 
 def _python_blocks() -> list[tuple[str, int, str]]:

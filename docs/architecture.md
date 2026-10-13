@@ -23,7 +23,7 @@ person's memory, one deployment, one set of keys.
 
 | Module | Responsibility | Depends on FastMCP |
 |---|---|---|
-| `server.py` | Transport shell. Builds the `FastMCP` server, wires Auth0 and the encrypted token store, resolves the token subject, registers the nine tools, runs the HTTP transport. | yes |
+| `server.py` | Transport shell. Builds the `FastMCP` server (`build_server`), wires Auth0 and the encrypted token store, resolves the token subject, registers the nine tools, and serves the HTTP transport with the bind and Host/Origin defaults (`serve`, `main`). | yes |
 | `config.py` | Reads and validates every environment setting that affects authentication, token storage and the bind address. Fails closed. | no |
 | `kernel.py` | All tool behavior, with the subject as an explicit parameter. | no |
 | `guard.py` | Sliding-window rate limit and the JSONL audit log. | no |
@@ -65,16 +65,17 @@ Enforced centrally in the kernel, never per tool:
   Fail closed unless `MCP_SINGLE_USER=1`.
 - **Rate limit and audit** (`guard.py`): per-subject sliding window on every
   call; one JSONL line per write action in `$SOMA_DATA/mcp_audit.jsonl`.
-- **Data-boundary fence** (`_fence`): every memory string is prefixed with a
-  marker that it is data, not instructions.
+- **Data-boundary fence** (`_fence`): every memory text a tool returns (search,
+  get and context text, debug snippets and filter explanation, the delete
+  preview) is prefixed with a marker that it is data, not instructions.
 
 And in the shell:
 
 - **Error masking:** `FastMCP(..., mask_error_details=True)`.
 - **Fail-closed configuration** (`config.py`): partial Auth0 or storage settings
   stop startup.
-- **Network exposure:** loopback bind and Host/Origin validation when
-  unauthenticated.
+- **Network exposure:** loopback bind and strict Host/Origin validation when
+  unauthenticated (`serve`).
 
 See [`security.md`](security.md) for the threat model.
 

@@ -6,14 +6,9 @@ real FastMCP Auth0Provider is constructed with SOMA's arguments (catching any
 signature drift in a FastMCP upgrade) without network access.
 """
 
-import json
 import logging
-import threading
-from collections.abc import Iterator
-from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
-import fastmcp
 import pytest
 from cryptography.fernet import Fernet
 from fastmcp.server.auth.providers.auth0 import Auth0Provider
@@ -22,51 +17,6 @@ from soma_mcp import server
 from soma_mcp.config import TOKEN_STORE_DIRNAME, ConfigurationError, TokenStorage
 
 SECRET = "client-secret-that-must-never-be-echoed"
-
-
-@pytest.fixture
-def oidc_config_url() -> Iterator[str]:
-    """Serve a minimal OIDC discovery document on 127.0.0.1."""
-
-    class Handler(BaseHTTPRequestHandler):
-        def do_GET(self) -> None:
-            issuer = f"http://127.0.0.1:{self.server.server_address[1]}/"
-            body = json.dumps({
-                "issuer": issuer,
-                "authorization_endpoint": issuer + "authorize",
-                "token_endpoint": issuer + "oauth/token",
-                "jwks_uri": issuer + ".well-known/jwks.json",
-                "response_types_supported": ["code"],
-                "subject_types_supported": ["public"],
-                "id_token_signing_alg_values_supported": ["RS256"],
-            }).encode()
-            self.send_response(200)
-            self.send_header("Content-Type", "application/json")
-            self.send_header("Content-Length", str(len(body)))
-            self.end_headers()
-            self.wfile.write(body)
-
-        def log_message(self, *args: object) -> None:
-            pass
-
-    httpd = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
-    thread = threading.Thread(target=httpd.serve_forever, daemon=True)
-    thread.start()
-    yield f"http://127.0.0.1:{httpd.server_address[1]}/.well-known/openid-configuration"
-    httpd.shutdown()
-    thread.join(timeout=5)
-
-
-@pytest.fixture
-def auth_env(monkeypatch, oidc_config_url, tmp_path):
-    # FastMCP's default OAuth store (used when SOMA's own storage is not
-    # configured) lives under fastmcp.settings.home; keep it out of $HOME.
-    monkeypatch.setattr(fastmcp.settings, "home", Path(tmp_path) / "fastmcp-home")
-    monkeypatch.setenv("AUTH0_CONFIG_URL", oidc_config_url)
-    monkeypatch.setenv("AUTH0_CLIENT_ID", "test-client")
-    monkeypatch.setenv("AUTH0_CLIENT_SECRET", SECRET)
-    monkeypatch.setenv("AUTH0_AUDIENCE", "https://api.test/")
-    monkeypatch.setenv("BASE_URL", "http://127.0.0.1:8000/")
 
 
 def _storage(tmp_path: Path, key: bytes | None = None) -> TokenStorage:
@@ -129,11 +79,16 @@ async def test_token_store_is_encrypted_at_rest_and_survives_restart(tmp_path):
     await store.put(key="https://claude.ai/oauth/client-metadata", collection="clients",
                     value={"refresh_token": "plaintext-refresh-token"})
 
-    files = [p for p in (Path(tmp_path) / TOKEN_STORE_DIRNAME).rglob("*") if p.is_file()]
+    root = Path(tmp_path) / TOKEN_STORE_DIRNAME
+    files = [p for p in root.rglob("*") if p.is_file()]
     assert files, "nothing was persisted"
     for path in files:
         assert b"plaintext-refresh-token" not in path.read_bytes()
-        assert "claude.ai" not in str(path)  # URL-shaped keys are sanitized, not used as paths
+    # The URL-shaped key became one sanitized file name directly inside its
+    # collection directory: no "://", no extra path segments, no traversal.
+    [entry] = [p.relative_to(root) for p in files if p.parent != root]
+    assert entry.parts[0] == "clients" and len(entry.parts) == 2
+    assert "://" not in str(entry) and ".." not in entry.parts
 
     restarted = server._token_storage(_storage(tmp_path, key))
     value = await restarted.get(key="https://claude.ai/oauth/client-metadata",
@@ -147,3 +102,18 @@ async def test_wrong_key_reads_as_missing_never_as_plaintext(tmp_path):
     await first.put(key="client", collection="clients", value={"token": "t"})
     rotated = server._token_storage(_storage(tmp_path))  # a different random key
     assert await rotated.get(key="client", collection="clients") is None
+
+
+def test_existing_store_directory_is_restricted_to_the_service_user(tmp_path):
+    directory = Path(tmp_path) / TOKEN_STORE_DIRNAME
+    directory.mkdir(mode=0o755)
+    directory.chmod(0o755)
+    server._token_storage(_storage(tmp_path))
+    assert directory.stat().st_mode & 0o777 == 0o700
+
+
+def test_single_user_with_auth0_warns_about_open_access(auth_env, monkeypatch, caplog):
+    monkeypatch.setenv("MCP_SINGLE_USER", "1")
+    with caplog.at_level(logging.WARNING, logger="soma_mcp"):
+        server.build_server()
+    assert "every account that can sign in" in caplog.text

@@ -120,29 +120,34 @@ git push origin "v$VERSION"
 ```
 
 Never move or reuse a published tag. Never use `latest`, `prod` or
-`release-*` as release tags.
+`release-*` as release tags. The workflow rejects a tag whose commit is not on
+`main`.
 
-Optional human gate: give the `release` environment
-(**Settings → Environments → release**) a required reviewer. The release job
-then waits for that approval before it builds and publishes.
+Human gate (required before the first release, see "Repository settings"): the
+`release` environment has Onno as required reviewer, so the publish job waits
+for that approval after the artifacts are built and verified.
 
 ## 8. What the release workflow does
 
 [`release.yml`](.github/workflows/release.yml), triggered by `v*.*.*`:
 
-1. runs the complete CI ([`ci.yml`](.github/workflows/ci.yml)) on the tagged commit;
-2. checks the tag is annotated and equals `v{__version__}`, and extracts the
-   changelog section;
-3. builds the sdist and wheel, runs `twine check --strict`;
-4. installs the wheel in a clean virtualenv and runs `tools/smoke_test.py`
-   with `--expect-version`;
-5. writes `SHA256SUMS`, creates a build-provenance attestation for both
-   artifacts (`actions/attest`), uploads them as a workflow artifact;
-6. creates the GitHub Release (or updates it on a re-run) with the changelog
-   section, the exact stack line, the checksums and verification commands.
+1. `verify`: runs the complete CI ([`ci.yml`](.github/workflows/ci.yml)) on
+   the tagged commit;
+2. `build` (read-only token): checks the tag is annotated, on `main` and equal
+   to `v{__version__}`, extracts the changelog section, builds the sdist and
+   wheel, runs `twine check --strict`, installs the wheel in a clean virtualenv
+   and runs `tools/smoke_test.py --expect-version`, writes `SHA256SUMS` and the
+   release notes, and uploads them as workflow artifacts;
+3. `publish` (environment `release`): downloads the artifacts, verifies
+   `SHA256SUMS`, creates a build-provenance attestation for both artifacts
+   (`actions/attest`), and creates the GitHub Release (or updates it on a
+   re-run) with the changelog section, the exact stack line, the checksums and
+   verification commands.
 
-Only that last job can write (`contents: write`, `id-token: write`,
-`attestations: write`); everything else runs read-only.
+Only `publish` can write (`contents: write`, `id-token: write`,
+`attestations: write`), and it installs and runs no third-party Python: build
+backends, CI tools and the wheel's dependencies only ever run with a read-only
+token.
 
 ## 9. Post-release verification
 
@@ -196,15 +201,16 @@ That job needs its own ADR and approval before it is added.
 
 ## Repository settings that code cannot enforce
 
-Configure these in GitHub (Settings → Rules / Branches / Environments); this
-repository cannot verify them:
+Configure these in GitHub (Settings → Rules / Branches / Environments /
+Code security) **before the first tag**; this repository cannot enforce them:
 
 - `main`: pull request required, required status checks = every job in
   `ci.yml`, branches up to date before merging, at least one independent
   approval, no force pushes, no deletions, no direct pushes (admins included).
-- Tag protection (ruleset on `refs/tags/v*`): only maintainers may create; no
-  updates or deletions.
-- `release` environment: required reviewer (Onno), deployment branch rule
-  limited to tags `v*.*.*`.
-- Private vulnerability reporting and secret scanning (with push protection)
-  enabled under **Settings → Code security**.
+- Tag ruleset on `refs/tags/v*`: only maintainers may create; no updates or
+  deletions.
+- `release` environment: required reviewer (Onno), deployment rule limited to
+  tags `v*.*.*`.
+- Immutable releases enabled, so published assets cannot be replaced.
+- Private vulnerability reporting, secret scanning with push protection, and
+  Dependabot security updates enabled under **Settings → Code security**.

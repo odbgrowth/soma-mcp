@@ -1,12 +1,17 @@
 name: CI
 
-# Pull requests and main get the full gate. The release workflow calls this
-# same file on the tagged commit, so a release is verified exactly like main.
+# Pull requests, main and a weekly schedule get the full gate. The release
+# workflow calls this same file on the tagged commit, so a release is verified
+# exactly like main.
 on:
   pull_request:
   push:
     branches: [main]
   workflow_call:
+  # Weekly run on main so a newly published advisory (pip-audit) or a new
+  # release inside the dependency ranges is noticed without a code change.
+  schedule:
+    - cron: "17 6 * * 1"
 
 # Least privilege: no job here writes anything. Pull requests from forks get a
 # read-only token and no secrets (pull_request, never pull_request_target).

@@ -72,11 +72,15 @@ The inventory also found defects the upgrade surfaced:
    SOMA imports `mcp.types` and documents the SDK `Client`.
 2. **Serve MCP 2026-07-28 as the primary revision** and the handshake revisions
    through the SDK's per-request negotiation. SOMA adds no era-specific code.
-   Both eras are tested in memory and over Streamable HTTP; the official
-   conformance suite runs in CI for the applicable tools-only scenarios.
+   Both eras are tested in memory and over Streamable HTTP, with the advertised
+   capabilities pinned; the official conformance suite runs in CI for the
+   scenarios that apply to a server whose content is tools only.
 3. **Replace `DiskStore` with an encrypted `FileTreeStore`** at
    `$SOMA_DATA/mcp_oauth/`, using FastMCP's V1 key and collection sanitization
-   and `FernetEncryptionWrapper(raise_on_decryption_error=False)`. The old
+   and `FernetEncryptionWrapper(raise_on_decryption_error=False)`, in a directory
+   kept at mode 0700. Fernet gives confidentiality at rest; integrity of the
+   store relies on filesystem permissions (the wrapper accepts entries written
+   without encryption, and ciphertexts are not bound to their key). The old
    `mcp_tokens/` directory is never read; startup logs a warning when it exists.
    No automatic migration: reading the old store means unpickling it.
 4. **Fail closed on configuration.** Auth0 requires all four `AUTH0_*`
@@ -84,10 +88,13 @@ The inventory also found defects the upgrade surfaced:
    invalid Fernet key stops startup. Messages name variables, never values.
 5. **Narrow the unauthenticated trust boundary.** Without Auth0 the server binds
    to `127.0.0.1` (overridable with `MCP_HOST`, with a loud warning for
-   non-loopback) and validates Host/Origin (FastMCP `host_origin_protection="auto"`).
-   Authenticated deployments keep `0.0.0.0` and FastMCP's default (no
-   Host/Origin guard): every request carries a bearer token, and a reverse proxy
-   on the same host forwards the public `Host` header the guard would reject.
+   non-loopback) and validates Host/Origin strictly on any bind address (FastMCP
+   `host_origin_protection=True`). `soma_mcp.serve(engine)` applies the same
+   defaults to a custom engine as the `soma-mcp` command. Authenticated
+   deployments keep `0.0.0.0` and FastMCP's own guard setting (off by default,
+   opt-in through `FASTMCP_HTTP_*`): every request carries a bearer token, and a
+   reverse proxy forwards the public `Host` header a default guard would reject.
+   The server skips FastMCP's banner and its PyPI update check.
 6. **One version source.** `soma_mcp.__version__` feeds the package metadata,
    `serverInfo.version`, `soma-mcp --version` and the required tag `v{version}`.
    This release is **0.2.0**: the protocol stack and a storage format change,
@@ -120,15 +127,22 @@ The inventory also found defects the upgrade surfaced:
 
 - Removes a pickle-deserialization sink from the OAuth path (CVE-2025-69872).
 - Encrypted at rest as before (Fernet); keys never logged; undecryptable entries
-  read as missing, never as plaintext.
+  read as missing. Not an integrity control: whoever can write the store
+  directory can plant or swap entries, so the directory is kept at 0700.
 - A partial Auth0 setup can no longer start an open server.
 - The local single-user server is no longer reachable from the network by
   default, nor from web pages via DNS rebinding.
+- The prompt-injection fence now also covers the `soma_debug` snippets and
+  filter explanation and the `soma_delete` preview (a gap that predates 0.2.0).
+- With Auth0, `MCP_SINGLE_USER=1` and no allowlist, startup warns that every
+  account of the Auth0 application gets full access.
 - Fail-closed allowlists, the prompt-injection fence, error masking, rate limit
   and audit log are unchanged and now tested through the transport as well.
-- Supply chain: bounded majors, pip-audit on the runtime set and the floors,
-  `cryptography>=50` (first release without known advisories), SHA-pinned
-  actions, gitleaks, artifact attestations.
+- Supply chain: bounded majors, pip-audit on the runtime set and the floors
+  (also weekly), `cryptography>=50` as a base dependency (first release without
+  known advisories), SHA-pinned actions, gitleaks, artifact attestations from a
+  publish job that runs no third-party Python, and release tags that must point
+  at a commit on `main`.
 
 ## Compatibility
 
@@ -140,7 +154,8 @@ The inventory also found defects the upgrade surfaced:
   unauthenticated server must listen beyond loopback; fix partial configurations
   that 0.1.0 silently accepted.
 - Embedders: `build_server`, `Engine`, `InMemoryEngine`, `Kernel`, `main`
-  unchanged. `build_server` raises `ConfigurationError` on partial configuration.
+  unchanged; new `serve(engine)`. `build_server` and `serve` raise
+  `ConfigurationError` on partial configuration.
 
 ## Migration and rollback
 

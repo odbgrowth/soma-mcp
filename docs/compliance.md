@@ -5,13 +5,13 @@ with the older handshake revisions it also serves. This page separates what
 SOMA's own CI **tests**, what it **delegates** to FastMCP and the MCP Python
 SDK, what it **leaves out on purpose**, and what is **roadmap**.
 
-> **Summary.** SOMA MCP implements a tested, tools-only MCP profile on the
-> official stack (FastMCP `>=4.1,<5`, MCP Python SDK `>=2.3,<3`). Its CI drives
+> **Summary.** SOMA MCP implements a tested MCP profile whose content is tools
+> only, on the official stack (FastMCP `>=4.1,<5`, MCP Python SDK `>=2.3,<3`). Its CI drives
 > the server through the official clients on both protocol eras and runs the
 > applicable scenarios of the official MCP conformance suite. It does not claim
-> full conformance: resources, prompts, completions and logging are not
-> implemented, and protocol mechanics SOMA does not touch are delegated to the
-> SDK.
+> full conformance: SOMA offers no prompts, resources or completions (FastMCP
+> advertises empty prompt and resource lists), and protocol mechanics SOMA does
+> not touch are delegated to the SDK.
 
 ## Status legend
 
@@ -39,7 +39,8 @@ SDK, what it **leaves out on purpose**, and what is **roadmap**.
 | Requirement | Status | Notes |
 |---|---|---|
 | Streamable HTTP | Tested | Real HTTP server on 127.0.0.1 in pytest and in the conformance job. |
-| DNS-rebinding protection (Host/Origin validation) for local servers | Tested | Conformance `dns-rebinding-protection` against the unauthenticated loopback server. |
+| DNS-rebinding protection (Host/Origin validation), unauthenticated server | Tested | Strict guard from `serve()`; conformance `dns-rebinding-protection` and an in-process test (421 for a foreign `Host`, 403 for a foreign `Origin`). |
+| Origin validation, authenticated server | Deviation (configurable) | Off by default: bearer tokens are required and a reverse proxy forwards the public `Host`. Operators enable it with `FASTMCP_HTTP_HOST_ORIGIN_PROTECTION` and `FASTMCP_HTTP_ALLOWED_HOSTS`. See [`security.md`](security.md) §4. |
 | stdio | Not implemented (optional) | SOMA is a long-running networked server. |
 | TLS | Deployment | Terminated by the operator's proxy or tunnel. |
 
@@ -48,14 +49,14 @@ SDK, what it **leaves out on purpose**, and what is **roadmap**.
 | Capability | Status | Notes |
 |---|---|---|
 | `tools` | Tested | Nine tools; `tools/list` and `tools/call` on both eras; conformance `tools-list` at 2025-11-25 and 2026-07-28. |
-| `listChanged` / `subscriptions/listen` | Not implemented (optional) | The tool set is static. |
-| `resources` | Not implemented (optional) | Memory is reached through retrieval tools, not URI enumeration. |
-| `prompts` | Not implemented (optional) | Retrieval prompts live inside the engine. |
-| `completions` | Not implemented (optional) | Low value for this surface. |
-| `logging` | Not implemented (optional) | Server-side logs and the write audit log instead; the capability is deprecated in 2026-07-28. |
+| `listChanged` / `subscriptions/listen` | Delegated | FastMCP advertises it (true in the handshake era); the tool set is static, so no notification is ever sent. |
+| `resources` | Advertised, empty | FastMCP default; `resources/list` returns nothing. Memory is reached through retrieval tools, not URI enumeration. |
+| `prompts` | Advertised, empty | FastMCP default; `prompts/list` returns nothing. Retrieval prompts live inside the engine. |
+| `completions` | Not implemented (optional) | Not advertised. |
+| `logging` | Advertised, unused | FastMCP default; SOMA logs server-side and audits writes instead. The capability is deprecated in 2026-07-28. |
 
-A server advertising only `tools` is a valid MCP server: every other server
-capability is optional.
+The exact capability objects for both eras are listed in
+[`specification.md`](specification.md) §4 and pinned by a test.
 
 ## 4. Tools
 
@@ -73,10 +74,10 @@ capability is optional.
 | Requirement | Status | Notes |
 |---|---|---|
 | OAuth 2.1 authorization | Delegated (+ construction tested) | FastMCP `Auth0Provider`; SOMA tests that its configuration builds the provider against a local OIDC discovery document. No real Auth0 in CI. |
-| Protected resource metadata, authorization server metadata, dynamic client registration | Delegated | FastMCP's OAuth proxy. |
-| Bearer token → subject → allowlist | Tested | End to end over HTTP with FastMCP's static token verifier: owner, reader, stranger and forged tokens. |
+| Protected resource metadata, authorization server metadata, client ID metadata documents, dynamic client registration (deprecated in 2026-07-28) | Delegated | FastMCP's OAuth proxy. |
+| Bearer token → subject → allowlist | Tested | End to end over HTTP with FastMCP's static token verifier: owner, reader and stranger tokens; missing and forged tokens get HTTP 401. |
 | Fail-closed allowlists and configuration | Tested | Kernel and config tests. |
-| Persistent, encrypted token storage | Tested | Encrypted at rest, survives a restart, wrong key reads as missing, URL-shaped keys sanitized. |
+| Persistent, encrypted token storage | Tested | Encrypted at rest, survives a restart, wrong key reads as missing, URL-shaped keys sanitized, directory mode 0700. Integrity relies on filesystem permissions ([`security.md`](security.md) §5). |
 
 ## 6. Conformance suite
 
@@ -101,13 +102,16 @@ to cover that revision.
 ## 7. Roadmap
 
 1. Declare `outputSchema` per tool. *(medium)*
-2. Run the conformance requirement sets (`--requirements 2026-07-28`) once a
+2. Optional Host/Origin allowlist for authenticated deployments, derived from
+   `BASE_URL`, and an optional client redirect URI allowlist. *(small)*
+3. Lock the conformance suite's npm dependency tree. *(small)*
+4. Run the conformance requirement sets (`--requirements 2026-07-28`) once a
    stable suite release covers the modern revision. *(small)*
-3. Smoke-test real clients (Claude, ChatGPT, an IDE) against a staging instance
+5. Smoke-test real clients (Claude, ChatGPT, an IDE) against a staging instance
    before releases. *(medium, manual)*
-4. A read-only `resources` view of recent or pinned notes, if clients want
+6. A read-only `resources` view of recent or pinned notes, if clients want
    browsing rather than querying. *(larger, evaluate demand first)*
-5. Decide on 2026-07-28 extensions (for example tasks) if a tool ever needs
+7. Decide on 2026-07-28 extensions (for example tasks) if a tool ever needs
    them. *(watch)*
 
 Done in 0.2.0: explicit `serverInfo.version`, documented protocol support with

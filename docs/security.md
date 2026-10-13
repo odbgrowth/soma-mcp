@@ -20,8 +20,10 @@ vulnerability: [`../SECURITY.md`](../SECURITY.md).
   necessary, not sufficient (§2).
 - **Memory contents** are treated as potentially hostile to the calling agent
   (prompt injection, §6).
-- The **local machine** in unauthenticated mode: other users and web pages on
-  the same machine are outside the boundary (§4).
+- The **local machine** in unauthenticated mode: there is no identity, so every
+  process and user on the machine that can reach the port has the access the
+  allowlists grant (full access with `MCP_SINGLE_USER=1`). Web pages in a browser
+  on that machine are kept out by the Host/Origin guard (§4).
 
 ## 2. Authentication and fail-closed authorization
 
@@ -54,19 +56,32 @@ config objects' `repr`.
 
 ## 4. Network exposure of the unauthenticated server
 
-Without Auth0 the server is a local experiment, and its defaults keep it one:
+Without Auth0 the server is a local experiment, and `serve()` (which the
+`soma-mcp` command uses) keeps it one:
 
 - it binds to **127.0.0.1** unless `MCP_HOST` says otherwise, and logs a warning
   when an unauthenticated server is bound to a non-loopback address;
-- it validates `Host` and `Origin` (FastMCP `host_origin_protection="auto"`), so
-  a web page in your browser cannot reach it through **DNS rebinding**; the
-  official MCP conformance scenario `dns-rebinding-protection` runs in CI;
+- it validates `Host` and `Origin` strictly (FastMCP `host_origin_protection=True`)
+  on any bind address: the `Host` must be `127.0.0.1`, `localhost`, `::1` or the
+  address the request arrived on, and a browser `Origin` must match. A web page
+  in your browser therefore cannot reach the server through **DNS rebinding**
+  (HTTP 421/403). The official conformance scenario `dns-rebinding-protection`
+  and an in-process test cover it;
 - it still applies the allowlists: without `MCP_SINGLE_USER=1` every call is
   denied.
 
+If you mount `build_server(...)` in your own ASGI app or call its `run()`
+yourself, the guard is yours to enable (`host_origin_protection=True`); FastMCP
+leaves it off by default.
+
 Authenticated deployments bind to `0.0.0.0` by default (inside a private
-network, behind the proxy) and keep FastMCP's default of no Host/Origin guard:
-every request needs a bearer token, which a rebinding page does not have.
+network, behind the proxy) and leave the guard to FastMCP's own setting, off by
+default: every request needs a bearer token, which a rebinding page does not
+have, and a reverse proxy forwards the public `Host` header that a default guard
+would reject. To validate `Host`/`Origin` there as well, set
+`FASTMCP_HTTP_HOST_ORIGIN_PROTECTION=true` and list your public host in
+`FASTMCP_HTTP_ALLOWED_HOSTS`. The server also skips FastMCP's startup banner and
+its update check against PyPI, so it makes no unsolicited outbound request.
 
 ## 5. OAuth token storage
 
@@ -77,22 +92,37 @@ volume (`$SOMA_DATA/mcp_oauth/`) when `MCP_JWT_SIGNING_KEY` and
 - a stolen volume snapshot yields no usable tokens without the key;
 - one JSON file per entry, no code execution on read (0.1.x used `DiskStore`,
   whose `diskcache` backend unpickles: CVE-2025-69872);
-- key and collection names are sanitized (FastMCP's V1 strategies), so a
-  client-supplied, URL-shaped client id cannot steer a path;
-- entries that do not decrypt read as missing, never as plaintext;
+- key and collection names are sanitized (FastMCP's V1 strategies replace
+  unsafe characters and add a hash suffix), so a client-supplied, URL-shaped
+  client id cannot steer a path;
+- entries whose ciphertext does not decrypt (rotated key, tampering) read as
+  missing;
 - the pre-0.2 `mcp_tokens/` directory is never read; the server warns while it
   exists. Never restore it from a backup.
+
+Fernet provides **confidentiality, not integrity of the store as a whole**: the
+upstream wrapper returns an entry that was written without encryption as-is,
+and a ciphertext copied from one entry into another still decrypts. Someone who
+can write to `mcp_oauth/` could therefore plant client registrations or swap
+token entries without the key. The server restricts the directory to mode 0700
+on every start; keep the data volume writable by the service user only. (With
+`DiskStore`, the same write access meant code execution.)
 
 ## 6. Prompt-injection fence (egress)
 
 Memory can contain text that addresses the calling agent ("ignore your previous
-instructions and…"). The kernel treats every returned memory string as data:
+instructions and…"). The kernel treats every memory text it returns as data:
 
 - `kernel._fence` prefixes each one with a marker stating it is stored memory
-  and that embedded commands must not be executed;
-- the fence is applied centrally, so no read tool (`soma_search`, `soma_get`,
-  `soma_context`) can bypass it; tests check every read path, in the kernel
-  and through the MCP protocol.
+  and that embedded commands must not be executed: the text of `soma_search`,
+  `soma_get` and `soma_context`, the `soma_debug` snippets and filter
+  explanation, and the `soma_delete` preview;
+- the fence is applied centrally in the kernel; tests check each of these
+  paths in the kernel, and search, debug and the delete preview also through
+  the MCP protocol;
+- short metadata labels (`datum`, `herkomst`, `domein`, `gesprekstitel`) are not
+  fenced, and the fence is a prefix, not an enclosing pair: in `soma_context`
+  it marks the start of the assembled text.
 
 This does not make a downstream model immune, but it gives every client an
 unambiguous signal, which is the strongest egress-side control a memory server
@@ -134,7 +164,12 @@ the server and checks nothing leaks.
 - FastMCP and the MCP SDK are bounded below their next major; Dependabot
   proposes new majors as separate pull requests.
 - CI fails on known vulnerabilities in the runtime dependency set and in the
-  declared floors (pip-audit), and on committed secrets (gitleaks, full history).
+  declared floors of the direct dependencies (pip-audit), and on committed
+  secrets (gitleaks, full history). It also runs weekly on `main`, so a newly
+  published advisory turns it red without a code change.
+- The conformance job runs the official suite through `npx` at pinned versions;
+  its transitive npm dependencies are not locked. The job has a read-only token
+  and its output feeds no release artifact.
 - GitHub Actions are pinned to commit SHAs; workflows default to read-only
   tokens, and only the release job can write.
 - Release artifacts ship with `SHA256SUMS` and a GitHub build-provenance
@@ -146,11 +181,13 @@ Before exposing an instance:
 
 - [ ] All five Auth0 settings present; the startup log does not say "running
       WITHOUT authentication".
-- [ ] `MCP_TOEGANG_SUBJECTS` set to your own subject(s), or `MCP_SINGLE_USER=1`
-      only for a genuinely single-user instance.
+- [ ] `MCP_TOEGANG_SUBJECTS` set to your own subject(s). Avoid
+      `MCP_SINGLE_USER=1` with Auth0: it admits every account that can sign in
+      to the Auth0 application (the server warns).
 - [ ] `MCP_SCHRIJF_SUBJECTS` set (a subset of the above).
 - [ ] `MCP_JWT_SIGNING_KEY` and `MCP_STORAGE_ENCRYPTION_KEY` set from a secret
-      store; `$SOMA_DATA` on a persistent volume readable only by the service.
+      store; `$SOMA_DATA` on a persistent volume readable and writable only by
+      the service user.
 - [ ] Public access only through the TLS proxy or tunnel.
 - [ ] No pre-0.2 `mcp_tokens/` directory left on the volume.
 - [ ] The startup log does not show the fail-closed warning.

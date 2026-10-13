@@ -31,16 +31,18 @@ classifiers = [
 # Bounded to the next major: FastMCP 5 or MCP SDK 3 must be adopted deliberately.
 # `mcp` stays a direct dependency because SOMA imports its protocol types
 # (`mcp.types.ToolAnnotations`, `mcp.types.version`) and documents its Client.
+# cryptography is used on every OAuth path (JWT verification, Fernet stores);
+# 50 is the first release without known advisories (pip-audit, 2026-10).
 dependencies = [
+    "cryptography>=50",
     "fastmcp>=4.1,<5",
     "mcp>=2.3,<3",
 ]
 
 [project.optional-dependencies]
 # Encrypted, persistent OAuth token storage (FileTreeStore + Fernet). FastMCP 4
-# already pulls these in; the extra pins the features SOMA imports directly.
+# already pulls this in; the extra pins the store features SOMA imports directly.
 auth = [
-    "cryptography>=50",  # first release without known advisories (pip-audit, 2026-10)
     "py-key-value-aio[filetree,wrappers-encryption]>=0.4.4,<0.5",
 ]
 # Contributor tooling. Linters are bounded to a minor series so a new release
@@ -91,7 +93,7 @@ source = ["soma_mcp"]
 branch = true
 
 [tool.coverage.report]
-# Measured at 98.6% for 0.2.0, with kernel.py and guard.py at 100%. The gate
+# Measured at 99% for 0.2.0, with kernel.py and guard.py at 100%. The gate
 # leaves room for per-Python branch differences. Raise it when coverage grows;
 # never lower it silently (RELEASE.md, "Coverage").
 fail_under = 95

@@ -24,6 +24,8 @@ MCP protocol `2026-07-28`, plus the handshake revisions `2024-11-05` to
 
 - `soma-mcp --version` prints the SOMA MCP, FastMCP and MCP SDK versions and the
   protocol revisions served; the same line is logged at startup.
+- `soma_mcp.serve(engine)`: serve a custom `Engine` with the same configuration,
+  bind address and DNS-rebinding guard as the `soma-mcp` command.
 - `MCP_HOST` and `MCP_PORT` to choose the HTTP bind address explicitly.
 - `soma_mcp.config`: FastMCP-free, fail-closed parsing of the Auth0, token
   storage and bind settings, with `ConfigurationError` for partial setups.
@@ -61,12 +63,17 @@ MCP protocol `2026-07-28`, plus the handshake revisions `2024-11-05` to
 - Tool annotations are typed `mcp.types.ToolAnnotations` objects (snake_case in
   Python, camelCase on the wire).
 - Without Auth0 the server now binds to `127.0.0.1` by default instead of
-  `0.0.0.0`. Authenticated deployments keep `0.0.0.0`.
+  `0.0.0.0` and validates `Host`/`Origin` strictly. Authenticated deployments
+  keep `0.0.0.0` and FastMCP's own guard setting.
+- The server no longer shows FastMCP's banner, which also skips its update
+  check against PyPI at startup.
+- `cryptography>=50` is a base dependency.
 - Auth0 and token-storage settings are all-or-nothing: a partial configuration
   refuses to start instead of silently running unauthenticated or without
   persistence. Token-storage variables without Auth0 are rejected too.
 - The rate-limit denial uses the `error` key like every other denial (was `fout`).
-- `requires setuptools>=77` to build (PEP 639 license metadata).
+- Building requires `setuptools>=77` (PEP 639 license metadata).
+- Configuration values are stripped of surrounding whitespace.
 
 ### Fixed
 
@@ -87,12 +94,21 @@ MCP protocol `2026-07-28`, plus the handshake revisions `2024-11-05` to
   if it still exists. **Clients re-register once after upgrading**
   (see [`docs/upgrading.md`](docs/upgrading.md)).
 - An invalid `MCP_STORAGE_ENCRYPTION_KEY` fails at startup with a message that
-  never echoes the key; undecryptable entries read as missing, never as
-  plaintext.
+  never echoes the key; undecryptable entries read as missing. The store
+  directory is kept at mode 0700: Fernet protects confidentiality, while the
+  store's integrity relies on filesystem permissions (documented).
+- The prompt-injection fence now also covers the `soma_debug` snippets and
+  filter explanation and the `soma_delete` preview, which 0.1.x returned
+  unfenced.
+- DNS-rebinding protection for the unauthenticated server (Host/Origin
+  validation); the official conformance scenario failed before this release.
+- With Auth0, `MCP_SINGLE_USER=1` and no allowlist, the server warns that every
+  account of the Auth0 application gets full access.
 - GitHub Actions are pinned to full commit SHAs, workflows default to
-  `contents: read`, and only the release job can write.
-- CI fails on known vulnerabilities in the runtime dependency set (pip-audit)
-  and on committed secrets (gitleaks).
+  `contents: read`; only the release's publish job can write, and it runs no
+  third-party Python. Release tags must be annotated and on `main`.
+- CI fails on known vulnerabilities in the runtime dependency set and the
+  declared floors (pip-audit, also weekly) and on committed secrets (gitleaks).
 
 ### Documentation
 
