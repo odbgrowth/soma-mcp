@@ -22,17 +22,18 @@ from soma_mcp import server
 ROOT = Path(__file__).resolve().parents[1]
 
 
-def _load_check_release() -> ModuleType:
-    path = ROOT / "tools" / "check_release.py"
-    spec = importlib.util.spec_from_file_location("check_release", path)
+def _load_tool(name: str) -> ModuleType:
+    path = ROOT / "tools" / f"{name}.py"
+    spec = importlib.util.spec_from_file_location(name, path)
     assert spec is not None and spec.loader is not None
     module = importlib.util.module_from_spec(spec)
-    sys.modules["check_release"] = module
+    sys.modules[name] = module
     spec.loader.exec_module(module)
     return module
 
 
-check_release = _load_check_release()
+check_release = _load_tool("check_release")
+check_floors = _load_tool("check_floors")
 
 
 def test_installed_metadata_matches_dunder_version():
@@ -90,6 +91,26 @@ def test_release_notes_are_written_from_the_changelog(tmp_path):
     assert check_release.main(["--tag", f"v{soma_mcp.__version__}", "--notes", str(notes)]) == 0
     assert notes.read_text(encoding="utf-8").strip() == check_release.changelog_section(
         soma_mcp.__version__)
+
+
+def test_release_notes_links_point_at_the_tag():
+    base = "https://github.com/odbgrowth/soma-mcp/blob/v0.2.0/"
+    notes = ("See [upgrading](docs/upgrading.md), [runbook](./RELEASE.md#10-rollback), "
+             "[spec](https://modelcontextprotocol.io), [top](#security) and [abs](/x).")
+    assert check_release.absolute_links(notes, base) == (
+        f"See [upgrading]({base}docs/upgrading.md), [runbook]({base}RELEASE.md#10-rollback), "
+        "[spec](https://modelcontextprotocol.io), [top](#security) and [abs](/x).")
+    real = check_release.absolute_links(
+        check_release.changelog_section(soma_mcp.__version__), base)
+    assert "](docs/" not in real and "](RELEASE.md" not in real and "](CHANGELOG.md" not in real
+
+
+def test_declared_floors_are_read_from_pyproject():
+    floors = check_floors.declared_floors()
+    assert floors == {"cryptography": "50", "fastmcp": "4.1", "mcp": "2.3",
+                      "py-key-value-aio": "0.4.4"}
+    assert check_floors.release("4.1") == check_floors.release("4.1.0") == (4, 1)
+    assert check_floors.release("50.0.2") != check_floors.release("50")
 
 
 # --- console entry point ---

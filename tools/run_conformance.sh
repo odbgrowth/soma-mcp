@@ -9,12 +9,14 @@
 # have. The suites come from tools/conformance/package-lock.json (every
 # transitive package pinned with an integrity hash, installed without install
 # scripts): 0.1.x is the stable suite (handshake era); the 0.2.0 alpha is the
-# first release with 2026-07-28 scenarios. Change versions in package.json and
-# regenerate the lockfile with `npm install --package-lock-only --ignore-scripts`.
+# first release with 2026-07-28 scenarios. To change versions, edit
+# tools/conformance/package.json and regenerate the lockfile from the repository
+# root with `npm install --prefix tools/conformance --package-lock-only --ignore-scripts`.
+# Nothing refreshes the lockfile automatically; review it when bumping the suites.
 set -eu
 
 URL="${1:-http://127.0.0.1:8000/mcp}"
-HERE="$(cd "$(dirname "$0")" && pwd)"
+HERE="$(CDPATH='' cd -- "$(dirname -- "$0")" && pwd)"
 SUITES="$HERE/conformance"
 BASELINE="$HERE/../.github/conformance-baseline.yml"
 

@@ -175,7 +175,7 @@ and may change in a minor release.
 ```bash
 pip install -e ".[dev,auth]"
 .devflows/verify            # ruff, mypy, pytest with coverage, release metadata, whitespace
-.devflows/run.py package    # build sdist and wheel, twine check
+python3 .devflows/run.py package   # build sdist and wheel, twine check
 ```
 
 CI runs the same gates on Python 3.10 to 3.14, the declared dependency floors,

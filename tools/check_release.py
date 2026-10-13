@@ -4,6 +4,8 @@
     python tools/check_release.py                      # CI: version + changelog
     python tools/check_release.py --tag v0.2.0         # release: tag == v{version}
     python tools/check_release.py --notes notes.md     # write this version's notes
+    python tools/check_release.py --notes notes.md --link-base URL
+                                       # ... with repository-relative links made absolute
 
 The version is read from src/soma_mcp/__init__.py without importing the package
 (the same literal setuptools reads), so the check runs before any install.
@@ -23,6 +25,9 @@ ROOT = Path(__file__).resolve().parents[1]
 INIT = ROOT / "src" / "soma_mcp" / "__init__.py"
 CHANGELOG = ROOT / "CHANGELOG.md"
 SEMVER = re.compile(r"^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$")
+# A Markdown link target that is relative to the repository root: no URL scheme,
+# no same-page anchor, no absolute path.
+RELATIVE_LINK = re.compile(r"\]\((?![a-zA-Z][a-zA-Z0-9+.-]*:|#|/)([^)\s]+)\)")
 
 
 class ReleaseCheckError(Exception):
@@ -76,11 +81,19 @@ def changelog_section(version: str, changelog: Path = CHANGELOG) -> str:
     return body
 
 
+def absolute_links(markdown: str, base: str) -> str:
+    """Point repository-relative links at `base` (for example the tag's tree), so
+    they keep working on the GitHub Release page, which resolves them elsewhere."""
+    base = base if base.endswith("/") else base + "/"
+    return RELATIVE_LINK.sub(lambda m: f"]({base}{m.group(1).removeprefix('./')})", markdown)
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__,
                                      formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--tag", help="release tag to validate, e.g. v0.2.0")
     parser.add_argument("--notes", type=Path, help="write the changelog section to this file")
+    parser.add_argument("--link-base", help="make repository-relative links in --notes absolute")
     args = parser.parse_args(argv)
     try:
         version = package_version()
@@ -92,6 +105,8 @@ def main(argv: list[str] | None = None) -> int:
         print(f"release check failed: {exc}", file=sys.stderr)
         return 1
     if args.notes is not None:
+        if args.link_base:
+            notes = absolute_links(notes, args.link_base)
         args.notes.write_text(notes + "\n", encoding="utf-8")
     print(f"release check ok: soma-mcp {version}"
           + (f", tag {args.tag}" if args.tag else "") + ", changelog section present")

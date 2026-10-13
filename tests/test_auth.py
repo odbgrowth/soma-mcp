@@ -7,6 +7,7 @@ signature drift in a FastMCP upgrade) without network access.
 """
 
 import logging
+import os
 from pathlib import Path
 
 import pytest
@@ -119,6 +120,22 @@ def test_single_user_with_auth0_warns_about_open_access(auth_env, monkeypatch, c
     assert "every account that can sign in" in caplog.text
 
 
+def test_store_directory_owned_by_another_account_refuses(tmp_path, monkeypatch):
+    directory = Path(tmp_path) / TOKEN_STORE_DIRNAME
+    directory.mkdir()
+    directory.chmod(0o750)
+
+    def not_owner(self, mode):
+        raise PermissionError("operation not permitted")
+
+    if directory.stat().st_uid == 0:  # running as root: hand the directory to someone else
+        os.chown(directory, 4243, -1)
+    monkeypatch.setattr(Path, "chmod", not_owner)
+    monkeypatch.setattr(os, "geteuid", lambda: 4242, raising=False)
+    with pytest.raises(ConfigurationError, match="owned or writable by another account"):
+        server._token_storage(_storage(tmp_path))
+
+
 def test_store_directory_writable_by_others_that_cannot_be_fixed_refuses(tmp_path, monkeypatch):
     directory = Path(tmp_path) / TOKEN_STORE_DIRNAME
     directory.mkdir()
@@ -128,7 +145,7 @@ def test_store_directory_writable_by_others_that_cannot_be_fixed_refuses(tmp_pat
         raise PermissionError("operation not permitted")
 
     monkeypatch.setattr(Path, "chmod", not_owner)
-    with pytest.raises(ConfigurationError, match="writable by group or others"):
+    with pytest.raises(ConfigurationError, match="owned or writable by another account"):
         server._token_storage(_storage(tmp_path))
 
 
@@ -143,4 +160,4 @@ def test_store_directory_not_ours_but_private_continues(tmp_path, monkeypatch, c
     monkeypatch.setattr(Path, "chmod", not_owner)
     with caplog.at_level(logging.WARNING, logger="soma_mcp"):
         server._token_storage(_storage(tmp_path))
-    assert "not writable by group or others" in caplog.text
+    assert "not writable by group or others, continuing" in caplog.text

@@ -100,10 +100,20 @@ directory to mode 0700; keep the data volume writable by the service user only.
 
 Possible but not recommended: it brings back the `DiskStore` vulnerability.
 
-1. Reinstall the 0.1.x code (pin the previous commit; there is no `v0.1.0` tag).
+1. Reinstall the 0.1.x code. It has no tag and no upper bounds on its
+   dependencies, so pin the last 0.1.x commit and the protocol stack it was
+   built for (a plain reinstall pulls in FastMCP 4 / SDK 2, which 0.1.x does not
+   support):
+
+   ```bash
+   pip install "soma-mcp[auth] @ git+https://github.com/odbgrowth/soma-mcp@18dc34780c056e66c7c5f280e093417e10170ef4" \
+     "fastmcp>=3.4.2,<4" "mcp>=1.27.2,<2"
+   ```
+
 2. Start with an **empty** `$SOMA_DATA/mcp_tokens/` and let clients re-register.
    Never restore an old `mcp_tokens/` from a backup.
-3. Remember that 0.1.x binds to `0.0.0.0` even without Auth0.
+3. Remember that 0.1.x binds to `0.0.0.0` even without Auth0, and that its
+   unauthenticated tool calls fail (the bug 0.2.0 fixes).
 
 The new `$SOMA_DATA/mcp_oauth/` directory can stay in place for a later
 re-upgrade or be deleted.

@@ -105,15 +105,18 @@ def _token_storage(storage: TokenStorage) -> AsyncKeyValue:
     try:
         directory.chmod(0o700)  # mkdir's mode does not tighten an existing directory
     except OSError:
-        # Not ours to chmod (another owner). Acceptable only if nobody else can
-        # write it: whoever can write the store can plant entries (see above).
-        if directory.stat().st_mode & 0o022:
+        # Not ours to chmod. Acceptable only if nobody but this user or root can
+        # write it: whoever can write the store can plant entries (see above),
+        # and another owner can always write (or re-open) it.
+        status = directory.stat()
+        foreign_owner = hasattr(os, "geteuid") and status.st_uid not in (os.geteuid(), 0)
+        if status.st_mode & 0o022 or foreign_owner:
             raise ConfigurationError(
-                f"OAuth token store {directory} is writable by group or others and "
-                f"cannot be restricted to mode 0700; fix its owner or permissions"
+                f"OAuth token store {directory} cannot be restricted to mode 0700 and "
+                f"is owned or writable by another account; fix its owner or permissions"
             ) from None
-        log.warning("Could not restrict %s to mode 0700; it is not writable by group "
-                    "or others, continuing.", directory)
+        log.warning("Could not restrict %s to mode 0700; it is owned by this user or root "
+                    "and not writable by group or others, continuing.", directory)
     store = FileTreeStore(
         data_directory=directory,
         key_sanitization_strategy=FileTreeV1KeySanitizationStrategy(directory),
@@ -286,6 +289,8 @@ def _host_origin_protection(authenticated: bool) -> bool | None:
     Unauthenticated: strict. Every request must carry a local Host (127.0.0.1,
     localhost, ::1 or the address it arrived on) and a matching Origin, on any
     bind address, so a web page cannot reach the server through DNS rebinding.
+    FastMCP adds FASTMCP_HTTP_ALLOWED_HOSTS / FASTMCP_HTTP_ALLOWED_ORIGINS to
+    those lists; a wildcard in either switches the corresponding check off.
     Authenticated: None, i.e. FastMCP's own setting (off unless the operator sets
     FASTMCP_HTTP_HOST_ORIGIN_PROTECTION / FASTMCP_HTTP_ALLOWED_HOSTS). Every
     request needs a bearer token, and a reverse proxy forwards the public Host

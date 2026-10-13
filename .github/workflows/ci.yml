@@ -67,7 +67,9 @@ jobs:
           fi
 
   tests:
-    name: Tests (Python ${{ matrix.python-version }})
+    # The check names "Python 3.10" ... "Python 3.14" are what the main branch
+    # ruleset requires ("Python 3.12" since validate.yml); keep them stable.
+    name: Python ${{ matrix.python-version }}
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     strategy:
@@ -114,7 +116,8 @@ jobs:
           uv pip install --python .venv-floor --resolution lowest-direct -e ".[auth]"
           uv pip install --python .venv-floor "pytest>=8"
           uv pip freeze --python .venv-floor --exclude-editable > floor-requirements.txt
-          grep -iE '^(fastmcp|mcp|cryptography|py-key-value-aio)==' floor-requirements.txt
+      - name: Installed versions equal the declared floors
+        run: .venv-floor/bin/python tools/check_floors.py
       - name: Pytest at the floors
         run: .venv-floor/bin/python -m pytest -q
       - name: Audit the floors

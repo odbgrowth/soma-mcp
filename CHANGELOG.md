@@ -38,8 +38,10 @@ MCP protocol `2026-07-28`, plus the handshake revisions `2024-11-05` to
   allowlists, two-step delete, rate limit, prompt-injection fence, error
   masking, audit log), configuration, token storage, version contract and docs.
 - CI pipeline (`.github/workflows/ci.yml`): Ruff, mypy, Python 3.10 to 3.14
-  test matrix with coverage gate, dependency-floor job, documentation checks,
-  pip-audit, gitleaks, package build, `twine check` and a clean-wheel smoke test.
+  test matrix with coverage gate (check names `Python 3.x`, matching the `main`
+  ruleset), dependency-floor job that asserts the installed floors
+  (`tools/check_floors.py`), documentation checks, pip-audit, gitleaks, package
+  build, `twine check` and a clean-wheel smoke test.
 - Tag-triggered release workflow (`.github/workflows/release.yml`): tag/version
   and changelog validation, full verification, sdist and wheel, `SHA256SUMS`,
   GitHub artifact attestations and a GitHub Release with notes from this file.
@@ -106,10 +108,12 @@ MCP protocol `2026-07-28`, plus the handshake revisions `2024-11-05` to
   account of the Auth0 application gets full access.
 - GitHub Actions are pinned to full commit SHAs, workflows default to
   `contents: read`; only the release's publish job can write, and it runs no
-  third-party Python. Release tags must be annotated and on `main`. Artifacts
-  are hashed before any of their dependencies run and checked against those
-  digests before attestation; the GitHub Release is assembled as a draft and
-  published last.
+  third-party Python. Release tags must be annotated and on `main`. The build
+  job runs only a hash-pinned build front end and the pinned backend and hashes
+  the artifacts at once; the wheel's dependencies run only in a separate
+  read-only smoke job. Publish checks the exact file set against those digests,
+  attests it, writes the notes from trusted job outputs, and publishes a draft
+  release last. The wheel is reproducible from the tag (`SOURCE_DATE_EPOCH`).
 - The conformance suites are installed from a lockfile
   (`tools/conformance/package-lock.json`, `npm ci --ignore-scripts`).
 - The server refuses to start when the token store directory is writable by

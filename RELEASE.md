@@ -58,14 +58,16 @@ $EDITOR docs/upgrading.md
 
 # 4. local gates (same as CI)
 .devflows/verify
-.devflows/run.py package
+python3 .devflows/run.py package
 python tools/check_release.py --tag "vX.Y.Z"
 ```
 
 `tools/check_release.py` fails unless the version is `MAJOR.MINOR.PATCH`, the tag
 is exactly `v` + version, and `CHANGELOG.md` has a non-empty, dated
-`## [X.Y.Z] - YYYY-MM-DD` section. Use the planned tag date; if the tag slips to
-another day, correct the date in a follow-up commit before tagging.
+`## [X.Y.Z] - YYYY-MM-DD` section. Use the planned release date. If the tag is
+created on a later day, leave the date: the GitHub Release records the exact
+publication time, and correcting the changelog is not worth another pull
+request and merge approval.
 
 ## 3. Reviews
 
@@ -81,10 +83,18 @@ Open the PR as a draft and fill in the template. Before it is marked ready:
 
 ## 4. CI must be green
 
-All jobs of [`ci.yml`](.github/workflows/ci.yml) on the PR's last commit:
-quality, tests on Python 3.10 to 3.14 (with the coverage gate), dependency floor,
-security (pip-audit, gitleaks), package (build, `twine check`, clean-wheel smoke
-test) and the MCP conformance job. A red job is fixed, never skipped.
+All ten jobs of [`ci.yml`](.github/workflows/ci.yml) on the PR's last commit,
+by check name:
+
+- `Quality (lint, types, release metadata)`
+- `Python 3.10`, `Python 3.11`, `Python 3.12`, `Python 3.13`, `Python 3.14`
+  (tests with the coverage gate)
+- `Dependency floor (Python 3.10, lowest direct versions)`
+- `Security (pip-audit, gitleaks)`
+- `Package (build, twine, clean wheel)`
+- `Integration (official MCP conformance suite)`
+
+A red job is fixed, never skipped.
 
 **Coverage.** The threshold in `pyproject.toml` (`fail_under`) only moves up. A
 PR that lowers it states why in its description and needs explicit approval.
@@ -103,6 +113,8 @@ git log -1 --oneline   # the release commit
 ## 6. Final local check on `main`
 
 ```bash
+git fetch origin
+test "$(git rev-parse HEAD)" = "$(git rev-parse origin/main)" && echo "HEAD is origin/main"
 python tools/check_release.py --tag "vX.Y.Z"
 git status --short     # must be empty
 ```
@@ -125,7 +137,21 @@ Never move or reuse a published tag. Never use `latest`, `prod` or
 
 Human gate (required before the first release, see "Repository settings"): the
 `release` environment has Onno as required reviewer, so the publish job waits
-for that approval after the artifacts are built and verified.
+for that approval after the artifacts are built, checked and smoke-tested.
+
+### If the release workflow fails after the tag is pushed
+
+- **Transient failure** (runner loss, network, a registry outage): open the run
+  and use **Re-run failed jobs**. A failure before `publish` leaves nothing
+  public; a failure inside `publish` leaves at most a draft, which the re-run
+  completes.
+- **A real failure that needs a code change** (a new pip-audit advisory, a
+  broken test): leave the tag where it is, fix the problem in a normal pull
+  request and release the next patch version (`X.Y.Z+1`). Do not move the tag.
+- **Delete an unreleased tag** only with Onno's explicit approval, and only if
+  no GitHub Release (draft or published) exists for it:
+  `git push origin --delete "vX.Y.Z"` (the tag ruleset must allow it for the
+  approver).
 
 ## 8. What the release workflow does
 
@@ -134,26 +160,38 @@ for that approval after the artifacts are built and verified.
 1. `verify`: runs the complete CI ([`ci.yml`](.github/workflows/ci.yml)) on
    the tagged commit;
 2. `build` (read-only token): checks the tag is annotated, on `main` and equal
-   to `v{__version__}`, extracts the changelog section, builds the sdist and
-   wheel, hashes them at once (`SHA256SUMS`, also passed on as a job output)
-   and uploads them, then runs `twine check --strict`, installs the wheel in a
-   clean virtualenv, runs `tools/smoke_test.py --expect-version`, and writes the
-   release notes;
-3. `publish` (environment `release`): downloads the artifacts, checks them
-   against the digests `build` took before any dependency ran, creates a
-   build-provenance attestation for both artifacts (`actions/attest`), attaches
-   them to a **draft** GitHub Release with the changelog section, the exact
-   stack line, the checksums and verification commands, and publishes the
-   draft last.
+   to `v{__version__}`, and extracts the changelog section (with links pointing
+   at the tag) and the previous tag on the same line of history. It installs
+   only the hash-pinned build front end (`.github/requirements-build.txt`),
+   builds with the pinned backend (`.github/constraints-build-backend.txt`) and
+   `SOURCE_DATE_EPOCH` set to the commit time, hashes the sdist and wheel at
+   once (`SHA256SUMS`, also a job output) and uploads them. No runtime
+   dependency of the package ever runs on this runner;
+3. `smoke` (read-only token, its own runner): checks the downloaded artifacts
+   against the build digests, runs `twine check --strict`, installs the wheel
+   with its dependencies in a clean virtualenv and runs
+   `tools/smoke_test.py --expect-version`;
+4. `publish` (environment `release`): checks the artifacts against the build
+   digests again (exact file set), records a build-provenance attestation for
+   both (`actions/attest`, stored on the repository, verifiable with
+   `gh attestation verify`), assembles the notes from trusted job outputs (the
+   changelog section and digests from `build`, the one `soma-mcp --version`
+   line from `smoke` after validating its format), puts the three assets on a
+   **draft** GitHub Release, checks the draft holds exactly those assets, and
+   publishes that draft by id.
 
 A failed run leaves at most a draft, which a re-run completes. A published
 release is final: with immutable releases enabled its assets and tag cannot
 change, so a re-run stops with an error and the fix is a new patch version.
 
 Only `publish` can write (`contents: write`, `id-token: write`,
-`attestations: write`), and it installs and runs no third-party Python: build
-backends, CI tools and the wheel's dependencies only ever run with a read-only
-token.
+`attestations: write`), and it installs and runs no third-party Python. The
+build front end and backend run in `build`, the wheel's dependencies only in
+`smoke`, both with a read-only token.
+
+**Reproducibility.** With the pinned backend and `SOURCE_DATE_EPOCH`, rebuilding
+the wheel from the tag gives the same SHA-256. The sdist is not yet
+byte-for-byte reproducible (archive metadata).
 
 ## 9. Post-release verification
 
@@ -162,7 +200,10 @@ VERSION=X.Y.Z
 mkdir "/tmp/soma-mcp-$VERSION" && cd "/tmp/soma-mcp-$VERSION"
 gh release download "v$VERSION" --repo odbgrowth/soma-mcp
 sha256sum --check SHA256SUMS
-gh attestation verify "soma_mcp-$VERSION-py3-none-any.whl" --repo odbgrowth/soma-mcp
+for f in "soma_mcp-$VERSION-py3-none-any.whl" "soma_mcp-$VERSION.tar.gz"; do
+  gh attestation verify "$f" --repo odbgrowth/soma-mcp \
+    --signer-workflow odbgrowth/soma-mcp/.github/workflows/release.yml
+done
 
 python -m venv venv
 venv/bin/pip install "soma_mcp-$VERSION-py3-none-any.whl"
@@ -180,8 +221,18 @@ A published tag is history: do not delete or move it. Roll back by releasing.
   where your settings allow it (immutable releases lock the assets and the tag),
   then fix forward with a patch release.
 - **Users need the previous version now**: install the previous release's wheel
-  from its GitHub Release (`gh release download v<previous>`), or pin
-  `soma-mcp==<previous>` from a Git URL at the previous tag.
+  from its GitHub Release, or straight from the previous tag:
+
+  ```bash
+  gh release download "v<previous>" --repo odbgrowth/soma-mcp --pattern '*.whl'
+  pip install "soma-mcp[auth] @ git+https://github.com/odbgrowth/soma-mcp@v<previous>"
+  ```
+
+- **Back to 0.1.x** (before the first tagged release): 0.1.0 has no tag and no
+  upper bounds on its dependencies, so a plain reinstall pulls in a protocol
+  stack it does not support. Use the pinned command in
+  [`docs/upgrading.md`](docs/upgrading.md#rollback-to-01x), which also covers the
+  token store.
 - **Dependency regression** (a new FastMCP or MCP SDK minor inside the range
   breaks something): release a patch that tightens the range, for example
   `fastmcp>=4.1,<4.3`, then fix forward.
@@ -207,16 +258,29 @@ That job needs its own ADR and approval before it is added.
 
 ## Repository settings that code cannot enforce
 
-Configure these in GitHub (Settings → Rules / Branches / Environments /
-Code security) **before the first tag**; this repository cannot enforce them:
+Configure these in GitHub (Settings → Rules / Environments / Code security);
+this repository cannot enforce them.
 
-- `main`: pull request required, required status checks = every job in
-  `ci.yml`, branches up to date before merging, at least one independent
-  approval, no force pushes, no deletions, no direct pushes (admins included).
-- Tag ruleset on `refs/tags/v*`: only maintainers may create; no updates or
-  deletions.
-- `release` environment: required reviewer (Onno), deployment rule limited to
-  tags `v*.*.*`.
-- Immutable releases enabled, so published assets cannot be replaced.
-- Private vulnerability reporting, secret scanning with push protection, and
-  Dependabot security updates enabled under **Settings → Code security**.
+**Before merging a pull request that changes CI jobs:**
+
+- The `main` ruleset's required status checks are the ten check names in §4
+  (source: GitHub Actions), with "require branches to be up to date". The
+  existing ruleset requires `Python 3.12`; `ci.yml` keeps producing that name,
+  so it stays satisfied, but only the full list gates every job. Keep pull
+  requests required, force pushes and deletions blocked, and no bypass actors.
+- Required approvals: GitHub never lets a pull request's author approve it.
+  While agents open pull requests under the repository owner's account, an
+  approval count above zero blocks every such PR; the merge gate is then Onno's
+  explicit approval in the conversation plus the draft → ready step
+  (`AGENTS.md`). Raise the count once a second reviewer identity exists.
+
+**Before the first tag:**
+
+- `release` environment: Onno as required reviewer, deployment rule limited to
+  tags matching `v*.*.*`. Without it GitHub creates the environment on first use
+  with no protection, and the publish job runs without a second approval.
+- Tag ruleset on `refs/tags/v*`: restrict creations, updates and deletions,
+  with "Repository admin" as the only bypass.
+- Immutable releases enabled, so published assets and tags cannot change.
+- Dependabot security updates enabled (private vulnerability reporting and
+  secret scanning with push protection are already on).

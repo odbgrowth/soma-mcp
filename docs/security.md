@@ -62,8 +62,10 @@ Without Auth0 the server is a local experiment, and `serve()` (which the
 - it binds to **127.0.0.1** unless `MCP_HOST` says otherwise, and logs a warning
   when an unauthenticated server is bound to a non-loopback address;
 - it validates `Host` and `Origin` strictly (FastMCP `host_origin_protection=True`)
-  on any bind address: the `Host` must be `127.0.0.1`, `localhost`, `::1` or the
-  address the request arrived on, and a browser `Origin` must match. A web page
+  on any bind address: the `Host` must be `127.0.0.1`, `localhost`, `::1`, the
+  address the request arrived on, or a host listed in
+  `FASTMCP_HTTP_ALLOWED_HOSTS`, and a browser `Origin` must match (or be listed
+  in `FASTMCP_HTTP_ALLOWED_ORIGINS`). A web page
   in your browser therefore cannot reach the server through **DNS rebinding**
   (HTTP 421/403). The official conformance scenario `dns-rebinding-protection`
   and an in-process test cover it;
@@ -72,10 +74,11 @@ Without Auth0 the server is a local experiment, and `serve()` (which the
 
 If you mount `build_server(...)` in your own ASGI app or call its `run()`
 yourself, the guard is yours to enable (`host_origin_protection=True`); FastMCP
-leaves it off by default. FastMCP's `FASTMCP_HTTP_ALLOWED_HOSTS` (from the
-environment or a `.env` file in the working directory) adds hosts to the
-guard's list even here; a wildcard such as `["*"]` switches the DNS-rebinding
-protection off, so leave it unset on an unauthenticated server.
+leaves it off by default. In `serve()` as well as in your own mount, FastMCP
+adds `FASTMCP_HTTP_ALLOWED_HOSTS` and `FASTMCP_HTTP_ALLOWED_ORIGINS` (from the
+environment or a `.env` file in the working directory) to the guard's lists; a
+wildcard such as `["*"]` in either switches the corresponding check off, so
+leave both unset on an unauthenticated server.
 
 Authenticated deployments bind to `0.0.0.0` by default (inside a private
 network, behind the proxy) and leave the guard to FastMCP's own setting, off by
@@ -181,10 +184,13 @@ the server and checks nothing leaks.
 - GitHub Actions are pinned to commit SHAs; workflows default to read-only
   tokens, and only the release's `publish` job can write. That job installs and
   runs no third-party Python.
-- Release artifacts are hashed right after the build, before any of their
-  dependencies run; `publish` checks them against those digests, then attaches
-  `SHA256SUMS` and a GitHub build-provenance attestation
-  (`gh attestation verify`).
+- Release artifacts are built by a job that runs only the hash-pinned build
+  front end and the pinned build backend, and are hashed at once; the wheel's
+  dependencies run only in a separate read-only smoke job. `publish` checks the
+  artifacts against the build digests (exact file set), records a GitHub
+  build-provenance attestation (`gh attestation verify`), assembles the release
+  notes from trusted job outputs and attaches the wheel, the sdist and
+  `SHA256SUMS` to the release.
 
 ## 12. Operator checklist
 
