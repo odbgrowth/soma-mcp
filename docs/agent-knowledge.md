@@ -8,13 +8,12 @@ kennis die hier veilig te delen is staat in dit bestand.
 ## Werkafspraken en regels
 
 - **Publieke grens.** Deze repo is de enige goedgekeurde publieke SOMA-repository. De memory van dit
-  project ging bijna volledig over interne infrastructuur en tenantdata (productiehost,
-  provisioning, eigenaarsregisters, een incident bij een klant). Die kennis hoort niet in een
+  project ging grotendeels over interne infrastructuur en tenantdata. Die kennis hoort niet in een
   publieke repo en is hier bewust weggelaten; ze staat in de privé-repo's van het SOMA-project
   (zie de PR-beschrijving). Voeg hier nooit interne infra, tenantdata of klantgegevens toe
   (zie "Repository privacy" in `AGENTS.md`).
 - **Sandbox-weigeringen niet omzeilen.** Als de classifier van de sandbox een destructief commando
-  (bijvoorbeeld een `docker compose down -v` over ssh) of een tool-aanroep weigert, probeer dan niet
+  (bijvoorbeeld het wissen van data op een remote host) of een tool-aanroep weigert, probeer dan niet
   hetzelfde commando via een andere tool. Leg uit wat je wilde doen en geef de gebruiker het exacte
   commando (26 augustus 2026).
 

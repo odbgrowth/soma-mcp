@@ -3,7 +3,8 @@ Documentation checks: the docs must describe the repository as it is.
 
 * every relative Markdown link and every backticked repository path exists;
 * current documents carry no stale claims (old SDK APIs, old repository URLs,
-  private hosts, deployment scripts this repository does not have);
+  deployment scripts this repository does not have);
+* no tracked file names a non-public host, as a URL or as a bare domain;
 * every Python snippet parses and its imports resolve;
 * the MCP SDK client example in docs/examples.md runs against a real server.
 
@@ -16,6 +17,7 @@ from __future__ import annotations
 import ast
 import importlib.util
 import re
+import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -47,7 +49,17 @@ PUBLIC_HOSTS = {
     "github.com", "modelcontextprotocol.io", "img.shields.io", "semver.org",
     "keepachangelog.com", "docs.pypi.org", "datatracker.ietf.org",
     "mcp.linear.app",  # Linear's public MCP endpoint (.codex/config.toml)
+    "claude.ai", "www.apache.org",
 }
+PLACEHOLDER_SUFFIXES = (".example", ".invalid", ".test",
+                        "example.com", "example.org", "example.net")
+# A bare host name in backticks or prose is as public as a link. The TLD list
+# keeps module paths (`soma_mcp.server`) and file names (`README.md`) out.
+DOMAIN = re.compile(
+    r"\b(?:[a-z0-9-]+\.)+(?:com|net|org|io|nl|dev|app|ai|cloud|eu|co|tech|xyz|me|sh|site"
+    r"|online|be|de)\b", re.I)
+# Generated or third-party text: the npm lockfile and the license.
+DOMAIN_EXEMPT = {"tools/conformance/package-lock.json", "LICENSE"}
 # Configuration that ships with the repository follows the same rule; a private
 # MCP endpoint belongs in the user-level ~/.codex/config.toml.
 CONFIG = sorted(
@@ -110,13 +122,40 @@ def test_no_stale_claims(doc: Path):
     assert not found, f"{_rel(doc)} contains stale statements: {found}"
 
 
-@pytest.mark.parametrize("doc", [*CURRENT, *CONFIG], ids=_rel)
+def _public(host: str) -> bool:
+    host = host.lower()
+    return host in PUBLIC_HOSTS or host.endswith(PLACEHOLDER_SUFFIXES)
+
+
+@pytest.mark.parametrize("doc", [*MARKDOWN, *CONFIG], ids=_rel)
 def test_only_public_hosts_and_placeholders(doc: Path):
     hosts = set(URL_HOST.findall(doc.read_text(encoding="utf-8")))
     private = {host for host in hosts
-               if host.split(":")[0] not in PUBLIC_HOSTS | {"127.0.0.1", "localhost"}
-               and not host.startswith("<") and not host.endswith(".example")}
+               if host.split(":")[0] not in {"127.0.0.1", "localhost"}
+               and not _public(host.split(":")[0]) and not host.startswith("<")}
     assert not private, f"{_rel(doc)} names non-public hosts: {sorted(private)}"
+
+
+def test_no_private_domains_in_any_tracked_file():
+    git = shutil.which("git")
+    if git is None or not (ROOT / ".git").exists():
+        pytest.skip("not a git checkout")
+    listed = subprocess.run([git, "ls-files", "-z"], cwd=ROOT, capture_output=True,
+                            check=True).stdout.decode()
+    found: dict[str, list[str]] = {}
+    for name in filter(None, listed.split("\0")):
+        path = ROOT / name
+        if name in DOMAIN_EXEMPT or not path.is_file():
+            continue
+        try:
+            text = path.read_text(encoding="utf-8")
+        except UnicodeDecodeError:  # binary (the logo)
+            continue
+        private = sorted({m.group(0).lower() for m in DOMAIN.finditer(text)
+                          if not _public(m.group(0))})
+        if private:
+            found[name] = private
+    assert not found, f"non-public domains in tracked files: {found}"
 
 
 def _python_blocks() -> list[tuple[str, int, str]]:

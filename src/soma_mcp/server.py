@@ -264,7 +264,7 @@ def build_server(engine: Engine | None = None) -> FastMCP:
     def soma_update(base_id: str, new_text: str) -> dict[str, Any]:
         """Overwrite an existing note with new text — use this for corrections
         instead of adding another note (prevents duplicates). base_id e.g.
-        note-20260608-151003. Chunk ids change."""
+        note-ref-0001. Chunk ids change."""
         return kernel.update(_subject(), base_id, new_text)
 
     @mcp.tool(annotations=ANNOTATIONS["soma_feedback"])
@@ -280,7 +280,7 @@ def build_server(engine: Engine | None = None) -> FastMCP:
 
     @mcp.tool(annotations=ANNOTATIONS["soma_delete"])
     def soma_delete(base_id: str, confirm: bool = False) -> dict[str, Any]:
-        """Delete a note (all its chunks) by base id, e.g. note-20260608-081905.
+        """Delete a note (all its chunks) by base id, e.g. note-ref-0002.
         Safety valve: without confirm=true you get only a preview — review it with
         the user, then call again with confirm=true."""
         return kernel.delete(_subject(), base_id, confirm)

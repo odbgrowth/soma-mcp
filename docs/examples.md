@@ -123,17 +123,17 @@ Write a fact (`soma_write`):
 Correct a note instead of adding a new one (`soma_update`):
 
 ```json
-{"base_id": "note-20260608-151003", "new_text": "The car is a 2021 model."}
+{"base_id": "note-ref-0001", "new_text": "The car is a 2021 model."}
 ```
 
 Delete a note in two steps (`soma_delete`):
 
 ```json
-{"base_id": "note-20260608-081905"}
+{"base_id": "note-ref-0002"}
 ```
 
 ```json
-{"base_id": "note-20260608-081905", "confirm": true}
+{"base_id": "note-ref-0002", "confirm": true}
 ```
 
 Log feedback about an answer (`soma_feedback`):

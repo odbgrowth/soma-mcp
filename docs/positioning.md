@@ -72,9 +72,8 @@ while staying fully compatible with the standard.
   keys."*
 - *"Sovereign by design, compatible by default."*
 
-## Relationship to SIVA
+## Relationship to products built on SOMA
 
-SOMA is also the foundation under **SIVA** (the product/multi-user layer) and the
-later SNA retention layer. SOMA MCP is the protocol-standard doorway into that
-foundation: when SIVA onboards a user, it provisions a SOMA instance, and SOMA
-MCP is how trusted agents reach it.
+SOMA can be the memory foundation under a multi-user product layer. SOMA MCP is
+the protocol-standard doorway into that foundation: whatever product sits on
+top, trusted agents reach a SOMA instance through SOMA MCP.
