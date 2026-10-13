@@ -156,6 +156,8 @@ def test_store_directory_owned_by_another_account_refuses(tmp_path, monkeypatch,
 
 
 def test_store_directory_owned_by_root_and_private_continues(tmp_path, monkeypatch, caplog):
+    # Writable by the service user all the same (an ACL, for example): the
+    # test runner owns the real directory, so os.access says yes.
     directory = Path(tmp_path) / TOKEN_STORE_DIRNAME
     directory.mkdir()
     directory.chmod(0o750)
@@ -164,7 +166,21 @@ def test_store_directory_owned_by_root_and_private_continues(tmp_path, monkeypat
     monkeypatch.setattr(Path, "chmod", _not_owner)
     with caplog.at_level(logging.WARNING, logger="soma_mcp"):
         server._token_storage(_storage(tmp_path))
-    assert "not writable by group or others, continuing" in caplog.text
+    assert "writable by this user and not by group or others, continuing" in caplog.text
+
+
+def test_store_directory_owned_by_root_and_not_writable_refuses(tmp_path, monkeypatch):
+    # The usual root-owned 0700/0750 volume under a non-root service: private,
+    # but the service user cannot create a single entry in it.
+    directory = Path(tmp_path) / TOKEN_STORE_DIRNAME
+    directory.mkdir()
+    directory.chmod(0o750)
+    _owned_by_root(monkeypatch, directory)
+    monkeypatch.setattr(os, "geteuid", lambda: 4242, raising=False)
+    monkeypatch.setattr(Path, "chmod", _not_owner)
+    monkeypatch.setattr(os, "access", lambda path, mode, **kwargs: False)
+    with pytest.raises(ConfigurationError, match="not writable by the service user"):
+        server._token_storage(_storage(tmp_path))
 
 
 def test_store_directory_owned_by_root_and_group_writable_refuses(tmp_path, monkeypatch):
@@ -194,4 +210,4 @@ def test_store_directory_not_ours_but_private_continues(tmp_path, monkeypatch, c
     monkeypatch.setattr(Path, "chmod", _not_owner)
     with caplog.at_level(logging.WARNING, logger="soma_mcp"):
         server._token_storage(_storage(tmp_path))
-    assert "not writable by group or others, continuing" in caplog.text
+    assert "writable by this user and not by group or others, continuing" in caplog.text

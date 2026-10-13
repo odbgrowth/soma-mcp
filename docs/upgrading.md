@@ -63,9 +63,10 @@ longer decrypt read as missing and clients register again.
 Fernet keeps the entries confidential at rest; it does not stop someone who can
 write to `mcp_oauth/` from planting or swapping entries. 0.2.0 restricts the
 directory to mode 0700 and refuses to start if it belongs to an account other
-than the service user or root, or if it stays writable by group or others. If
-you pre-create the directory on the data volume, create it as the service
-user; keep the volume writable by the service user only.
+than the service user or root, if it stays writable by group or others, or if
+the service user cannot write it. If you pre-create the directory on the data
+volume, create it as the service user; keep the volume writable by the service
+user only.
 
 ### Protocol and client impact
 

@@ -117,7 +117,9 @@ token entries without the key. The server refuses to start if the directory
 belongs to an account other than the service user or root (its owner can
 always make it writable again), restricts it to mode 0700 on every start, and
 refuses to start if that fails while the directory is writable by group or
-others. Keep the data volume writable by the service user only. (With
+others, or is not writable by the service user itself (a root-owned 0700
+directory under a non-root service would otherwise fail on the first client
+registration). Keep the data volume writable by the service user only. (With
 `DiskStore`, the same write access meant code execution.)
 
 ## 6. Prompt-injection fence (egress)
