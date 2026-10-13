@@ -1,3 +1,5 @@
-# Build backend version for release builds (PIP_CONSTRAINT in the release build
-# job). pyproject.toml keeps the open floor (setuptools>=77) for everyone else.
-setuptools==84.0.0
+# Build backend for release builds (PIP_CONSTRAINT with PIP_REQUIRE_HASHES=1 in
+# the release build job and the CI package job). pyproject.toml keeps the open
+# floor (setuptools>=77) for everyone else. Hash: the py3-none-any wheel on PyPI.
+setuptools==84.0.0 \
+    --hash=sha256:51a52592b3b99e102b609654876bd65f19f999935166d1352678931132b0c670

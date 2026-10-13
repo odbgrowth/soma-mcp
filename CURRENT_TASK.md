@@ -18,14 +18,19 @@ deployment.
   status Proposed. Implementation, tests and documentation complete on the
   branch; reviews and CI tracked in the draft PR.
 - **Files changed:** see the PR; summary in [`CHANGELOG.md`](CHANGELOG.md) under 0.2.0.
-- **Validation evidence:** `.devflows/verify`, `.devflows/run.py package`,
-  `tools/run_conformance.sh`, the Python 3.10 to 3.14 matrix and the
-  dependency-floor run; results in the PR description.
+- **Validation evidence:** `.devflows/verify`, `python3 .devflows/run.py package`,
+  `tools/run_conformance.sh`, the ten CI checks (Python 3.10 to 3.14 matrix,
+  dependency floor, security, package with the reproducible-wheel check,
+  conformance) and the review results; all in the PR description.
 - **Risks/unknowns:** clients re-register once (new token store); unauthenticated
   servers now bind to loopback; GitHub branch, tag and environment protection
   must be configured by hand (RELEASE.md).
-- **Next action and required approval:** Onno approves ADR-003 and the merge;
-  after merge, Onno approves and creates the annotated tag `v0.2.0`
+- **Next action and required approval:** Onno approves ADR-003. Before the
+  merge, Onno sets the `main` ruleset's required checks to the ten names in
+  RELEASE.md §4 (this PR changes CI jobs) and approves the merge. Before the
+  tag, Onno configures the `release` environment, the tag ruleset, immutable
+  releases and Dependabot security updates (RELEASE.md, "Repository
+  settings"), then approves and creates the annotated tag `v0.2.0`
   (RELEASE.md, step 7).
 
 ## Delivery boundary

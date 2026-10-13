@@ -142,16 +142,21 @@ for that approval after the artifacts are built, checked and smoke-tested.
 ### If the release workflow fails after the tag is pushed
 
 - **Transient failure** (runner loss, network, a registry outage): open the run
-  and use **Re-run failed jobs**. A failure before `publish` leaves nothing
-  public; a failure inside `publish` leaves at most a draft, which the re-run
-  completes.
+  and use **Re-run failed jobs**. What a failed run leaves behind is listed in
+  §8; a re-run completes a draft.
 - **A real failure that needs a code change** (a new pip-audit advisory, a
   broken test): leave the tag where it is, fix the problem in a normal pull
   request and release the next patch version (`X.Y.Z+1`). Do not move the tag.
+  `X.Y.Z` never gets a GitHub Release, so in that pull request move its
+  changelog entries into the `## [X.Y.Z+1]` section and leave one line under
+  `## [X.Y.Z]`: "Tagged, not released; see X.Y.Z+1." The release notes'
+  compare link then starts at the last published release, not at the failed
+  tag (the workflow skips tags without a published release).
 - **Delete an unreleased tag** only with Onno's explicit approval, and only if
   no GitHub Release (draft or published) exists for it:
   `git push origin --delete "vX.Y.Z"` (the tag ruleset must allow it for the
-  approver).
+  approver). This only tidies the tag list: the version number stays used, so
+  never re-create `vX.Y.Z`, on any commit; release `X.Y.Z+1` as above.
 
 ## 8. What the release workflow does
 
@@ -161,37 +166,57 @@ for that approval after the artifacts are built, checked and smoke-tested.
    the tagged commit;
 2. `build` (read-only token): checks the tag is annotated, on `main` and equal
    to `v{__version__}`, and extracts the changelog section (with links pointing
-   at the tag) and the previous tag on the same line of history. It installs
-   only the hash-pinned build front end (`.github/requirements-build.txt`),
-   builds with the pinned backend (`.github/constraints-build-backend.txt`) and
-   `SOURCE_DATE_EPOCH` set to the commit time, hashes the sdist and wheel at
-   once (`SHA256SUMS`, also a job output) and uploads them. No runtime
-   dependency of the package ever runs on this runner;
+   at the tag) and the previous published release on the same line of history
+   (a tag without a published release is skipped). It installs only the
+   hash-pinned build front end (`.github/requirements-build.txt`), builds with
+   the hash-pinned backend (`.github/constraints-build-backend.txt` with
+   `PIP_REQUIRE_HASHES=1`), `SOURCE_DATE_EPOCH` set to the commit time and
+   umask 022, hashes the sdist and wheel at once (`SHA256SUMS`, also a job
+   output) and uploads them. No runtime dependency of the package ever runs on
+   this runner;
 3. `smoke` (read-only token, its own runner): checks the downloaded artifacts
    against the build digests, runs `twine check --strict`, installs the wheel
-   with its dependencies in a clean virtualenv and runs
-   `tools/smoke_test.py --expect-version`;
+   with its dependencies in a clean virtualenv, runs
+   `tools/smoke_test.py --expect-version` and passes on the one
+   `soma-mcp --version` line;
 4. `publish` (environment `release`): checks the artifacts against the build
-   digests again (exact file set), records a build-provenance attestation for
-   both (`actions/attest`, stored on the repository, verifiable with
+   digests again (exact file set). Before anything is recorded, it validates
+   the format of the line from `smoke` and stops if the release is already
+   published. Then it records a build-provenance attestation for both artifacts
+   (`actions/attest`, stored on the repository, verifiable with
    `gh attestation verify`), assembles the notes from trusted job outputs (the
-   changelog section and digests from `build`, the one `soma-mcp --version`
-   line from `smoke` after validating its format), puts the three assets on a
-   **draft** GitHub Release, checks the draft holds exactly those assets, and
-   publishes that draft by id.
+   changelog section and digests from `build`, the validated line from
+   `smoke`), puts the three assets on a **draft** GitHub Release, checks the
+   draft holds exactly the expected asset names, and publishes that draft by
+   id.
 
-A failed run leaves at most a draft, which a re-run completes. A published
-release is final: with immutable releases enabled its assets and tag cannot
-change, so a re-run stops with an error and the fix is a new patch version.
+A failed run publishes no release. It can leave behind:
+
+- the `release-dist` workflow artifact, downloadable from the run (the
+  repository is public) for the repository's artifact retention period;
+- once `publish` is past its attest step, a build-provenance attestation of the
+  built artifacts. On a public repository it is also written to the public
+  Sigstore transparency log, which keeps it; a re-run adds another for the same
+  digests;
+- a draft release, which a re-run completes.
+
+A published release is final: with immutable releases enabled its assets and
+tag cannot change, so a re-run stops before attesting and the fix is a new
+patch version.
 
 Only `publish` can write (`contents: write`, `id-token: write`,
-`attestations: write`), and it installs and runs no third-party Python. The
-build front end and backend run in `build`, the wheel's dependencies only in
-`smoke`, both with a read-only token.
+`attestations: write`), and it installs and runs no third-party Python. In a
+release run the build front end and backend run only in `build`, and the
+wheel's dependencies run in `smoke` and in `verify`'s CI jobs, which never
+handle the release artifacts. Every job except `publish` has a read-only token.
 
-**Reproducibility.** With the pinned backend and `SOURCE_DATE_EPOCH`, rebuilding
-the wheel from the tag gives the same SHA-256. The sdist is not yet
-byte-for-byte reproducible (archive metadata).
+**Reproducibility.** The wheel is reproducible: rebuilt from the tag with the
+recipe in §9, it has the same SHA-256 as the released one, and the CI `Package`
+job checks this on every pull request. The recipe matters. The backend version
+is written into the wheel, its timestamps come from `SOURCE_DATE_EPOCH`, and
+the zip stores each file's mode, so a checkout made under umask 002 gives a
+different hash. The sdist is not yet byte-for-byte reproducible (archive
+metadata).
 
 ## 9. Post-release verification
 
@@ -212,6 +237,22 @@ venv/bin/soma-mcp --version
 
 Check the release page: title, notes, the three assets (wheel, sdist and
 `SHA256SUMS`), and that the stack line matches the changelog.
+
+To rebuild the wheel yourself and compare it (Python 3.10 or newer; run from an
+empty directory):
+
+```bash
+VERSION=X.Y.Z
+umask 022                      # file modes are part of the wheel
+git clone --quiet --branch "v$VERSION" https://github.com/odbgrowth/soma-mcp src
+cd src
+python3 -m venv ../build-env
+../build-env/bin/pip install --require-hashes --no-deps -r .github/requirements-build.txt
+SOURCE_DATE_EPOCH="$(git log -1 --format=%ct)" \
+PIP_CONSTRAINT="$PWD/.github/constraints-build-backend.txt" PIP_REQUIRE_HASHES=1 \
+  ../build-env/bin/python -m build --outdir rebuilt
+sha256sum rebuilt/*.whl        # equals the wheel's line in the release's SHA256SUMS
+```
 
 ## 10. Rollback
 
@@ -248,7 +289,7 @@ Not enabled. If SOMA MCP is ever published to PyPI, do it with
 [Trusted Publishing](https://docs.pypi.org/trusted-publishers/) (OIDC, no
 long-lived API token) from a separate job that:
 
-- runs only after the release job and only from a `v*.*.*` tag;
+- runs only after the `publish` job and only from a `v*.*.*` tag;
 - uses a dedicated GitHub environment (for example `pypi`) with Onno as required
   reviewer;
 - has `id-token: write` and nothing else;

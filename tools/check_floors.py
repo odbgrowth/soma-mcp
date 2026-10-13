@@ -19,15 +19,33 @@ from pathlib import Path
 
 PYPROJECT = Path(__file__).resolve().parents[1] / "pyproject.toml"
 ARRAY = re.compile(r"^(?:dependencies|auth) = \[(.*?)^\]", re.M | re.S)
-FLOOR = re.compile(r'"([A-Za-z0-9_.-]+)(?:\[[^\]]*\])?\s*>=\s*([0-9][^,";\s]*)')
+QUOTED = re.compile(r'"([^"]*)"')
+REQUIREMENT = re.compile(r"\s*([A-Za-z0-9_.-]+)\s*(?:\[[^\]]*\])?\s*([^;]*)")
+LOWER = re.compile(r">=\s*([0-9][^,\s]*)")
+
+
+class FloorError(ValueError):
+    """A declared dependency has no `>=` floor to check."""
 
 
 def declared_floors(pyproject: Path = PYPROJECT) -> dict[str, str]:
+    """`>=` floors of the runtime dependencies and the `auth` extra, in any
+    specifier order. Comments are ignored; an entry without a floor is an error,
+    so a dependency cannot escape the check by being written another way."""
     text = pyproject.read_text(encoding="utf-8")
     floors: dict[str, str] = {}
+    missing: list[str] = []
     for array in ARRAY.findall(text):
-        for name, version in FLOOR.findall(array):
-            floors[name] = version
+        for line in array.splitlines():
+            for requirement in QUOTED.findall(line.split("#", 1)[0]):
+                match = REQUIREMENT.match(requirement)
+                lower = LOWER.search(match.group(2)) if match else None
+                if match is None or lower is None:
+                    missing.append(requirement)
+                    continue
+                floors[match.group(1)] = lower.group(1)
+    if missing:
+        raise FloorError(f"no >= floor declared for: {', '.join(missing)}")
     return floors
 
 
@@ -42,10 +60,14 @@ def release(version: str) -> tuple[int, ...]:
     return tuple(parts)
 
 
-def main() -> int:
-    floors = declared_floors()
+def main(pyproject: Path = PYPROJECT) -> int:
+    try:
+        floors = declared_floors(pyproject)
+    except FloorError as exc:
+        print(f"FAIL {exc}", file=sys.stderr)
+        return 1
     if not floors:
-        print(f"no dependency floors found in {PYPROJECT}", file=sys.stderr)
+        print(f"no dependency floors found in {pyproject}", file=sys.stderr)
         return 1
     failed = False
     for name, floor in sorted(floors.items()):

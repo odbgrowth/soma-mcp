@@ -109,15 +109,19 @@ MCP protocol `2026-07-28`, plus the handshake revisions `2024-11-05` to
 - GitHub Actions are pinned to full commit SHAs, workflows default to
   `contents: read`; only the release's publish job can write, and it runs no
   third-party Python. Release tags must be annotated and on `main`. The build
-  job runs only a hash-pinned build front end and the pinned backend and hashes
-  the artifacts at once; the wheel's dependencies run only in a separate
-  read-only smoke job. Publish checks the exact file set against those digests,
-  attests it, writes the notes from trusted job outputs, and publishes a draft
-  release last. The wheel is reproducible from the tag (`SOURCE_DATE_EPOCH`).
+  job runs only a hash-pinned build front end and backend and hashes the
+  artifacts at once; in the release run, the wheel's dependencies run only in
+  read-only jobs (a separate smoke job and the CI jobs, which never handle the
+  release artifacts). Publish checks the exact file set against those digests,
+  validates the smoke output and the release state before it attests, writes
+  the notes from trusted job outputs, and publishes a draft release last. The
+  wheel is reproducible from the tag with the recipe in
+  [`RELEASE.md`](RELEASE.md) (§9), and CI checks that on every pull request.
 - The conformance suites are installed from a lockfile
   (`tools/conformance/package-lock.json`, `npm ci --ignore-scripts`).
-- The server refuses to start when the token store directory is writable by
-  group or others and cannot be restricted.
+- The server refuses to start when the token store directory belongs to an
+  account other than the service user or root, or is writable by group or
+  others and cannot be restricted to mode 0700.
 - CI fails on known vulnerabilities in the runtime dependency set and the
   declared floors (pip-audit, also weekly) and on committed secrets (gitleaks).
 

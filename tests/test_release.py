@@ -88,9 +88,22 @@ def test_changelog_section_rules(tmp_path):
 
 def test_release_notes_are_written_from_the_changelog(tmp_path):
     notes = Path(tmp_path) / "notes.md"
-    assert check_release.main(["--tag", f"v{soma_mcp.__version__}", "--notes", str(notes)]) == 0
+    tag = f"v{soma_mcp.__version__}"
+    assert check_release.main(["--tag", tag, "--notes", str(notes)]) == 0
     assert notes.read_text(encoding="utf-8").strip() == check_release.changelog_section(
         soma_mcp.__version__)
+    base = f"https://example.invalid/blob/{tag}/"
+    assert check_release.main(["--tag", tag, "--notes", str(notes), "--link-base", base]) == 0
+    written = notes.read_text(encoding="utf-8")
+    assert f"]({base}docs/upgrading.md)" in written
+    assert "](docs/" not in written
+
+
+def test_link_base_without_notes_is_an_error(capsys):
+    with pytest.raises(SystemExit) as exc:
+        check_release.main(["--link-base", "https://example.invalid/"])
+    assert exc.value.code == 2
+    assert "--link-base needs --notes" in capsys.readouterr().err
 
 
 def test_release_notes_links_point_at_the_tag():
@@ -111,6 +124,53 @@ def test_declared_floors_are_read_from_pyproject():
                       "py-key-value-aio": "0.4.4"}
     assert check_floors.release("4.1") == check_floors.release("4.1.0") == (4, 1)
     assert check_floors.release("50.0.2") != check_floors.release("50")
+
+
+def _pyproject(tmp_path: Path, dependencies: str, auth: str = "") -> Path:
+    path = Path(tmp_path) / "pyproject.toml"
+    path.write_text(f"[project]\ndependencies = [\n{dependencies}\n]\n\n"
+                    f"[project.optional-dependencies]\nauth = [\n{auth}\n]\n", encoding="utf-8")
+    return path
+
+
+def test_floors_are_found_in_any_specifier_order_and_comments_are_ignored(tmp_path):
+    pyproject = _pyproject(
+        tmp_path,
+        '    "fastmcp<5,>=4.1",  # note "x>=9"\n    # "oldpkg>=1.0",\n    "mcp >= 2.3, < 3",',
+        '    "py-key-value-aio[filetree]>=0.4.4,<0.5; python_version >= \'3.10\'",')
+    assert check_floors.declared_floors(pyproject) == {
+        "fastmcp": "4.1", "mcp": "2.3", "py-key-value-aio": "0.4.4"}
+
+
+@pytest.mark.parametrize("requirement", ['"fastmcp~=4.1"', '"mcp==2.3.0"', '"cryptography"'])
+def test_a_dependency_without_a_floor_fails(tmp_path, requirement, capsys):
+    pyproject = _pyproject(tmp_path, f'    "mcp>=2.3,<3",\n    {requirement},')
+    with pytest.raises(check_floors.FloorError, match="no >= floor"):
+        check_floors.declared_floors(pyproject)
+    assert check_floors.main(pyproject) == 1
+    assert requirement.strip('"') in capsys.readouterr().err
+
+
+def test_floor_check_fails_on_a_mismatch_or_a_missing_package(tmp_path, monkeypatch, capsys):
+    pyproject = _pyproject(tmp_path, '    "fastmcp>=4.1,<5",', '    "mcp>=2.3,<3",')
+    installed = {"fastmcp": "4.1.0", "mcp": "2.3"}
+
+    def version(name):
+        if name not in installed:
+            raise importlib.metadata.PackageNotFoundError(name)
+        return installed[name]
+
+    monkeypatch.setattr(check_floors.importlib.metadata, "version", version)
+    assert check_floors.main(pyproject) == 0  # 4.1.0 is the floor 4.1
+    installed["fastmcp"] = "4.2.0"
+    assert check_floors.main(pyproject) == 1
+    assert "FAIL fastmcp: installed 4.2.0, floor 4.1" in capsys.readouterr().out
+    installed["fastmcp"] = "4.1"
+    del installed["mcp"]
+    assert check_floors.main(pyproject) == 1
+    assert "FAIL mcp: not installed (floor 2.3)" in capsys.readouterr().out
+    assert check_floors.main(_pyproject(tmp_path, "")) == 1
+    assert "no dependency floors found" in capsys.readouterr().err
 
 
 # --- console entry point ---

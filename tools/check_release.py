@@ -95,6 +95,8 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--notes", type=Path, help="write the changelog section to this file")
     parser.add_argument("--link-base", help="make repository-relative links in --notes absolute")
     args = parser.parse_args(argv)
+    if args.link_base and args.notes is None:
+        parser.error("--link-base needs --notes")
     try:
         version = package_version()
         check_version(version)

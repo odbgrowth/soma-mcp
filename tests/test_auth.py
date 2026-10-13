@@ -8,6 +8,7 @@ signature drift in a FastMCP upgrade) without network access.
 
 import logging
 import os
+import stat as stat_module
 from pathlib import Path
 
 import pytest
@@ -120,19 +121,60 @@ def test_single_user_with_auth0_warns_about_open_access(auth_env, monkeypatch, c
     assert "every account that can sign in" in caplog.text
 
 
-def test_store_directory_owned_by_another_account_refuses(tmp_path, monkeypatch):
+def _not_owner(self, mode):
+    raise PermissionError("operation not permitted")
+
+
+def _owned_by_root(monkeypatch, directory: Path) -> None:
+    """Make `directory` report st_uid 0, as a root-owned volume would."""
+    real_stat = Path.stat
+
+    def stat(self, *args, **kwargs):
+        result = real_stat(self, *args, **kwargs)
+        if self != directory:
+            return result
+        fields = list(result)
+        fields[stat_module.ST_UID] = 0
+        return os.stat_result(fields)
+
+    monkeypatch.setattr(Path, "stat", stat)
+
+
+@pytest.mark.parametrize("service_uid", [4242, 0])
+def test_store_directory_owned_by_another_account_refuses(tmp_path, monkeypatch, service_uid):
+    # chmod stays real: an owner that is neither the service user nor root can
+    # make the directory writable again, so a successful chmod is not enough.
     directory = Path(tmp_path) / TOKEN_STORE_DIRNAME
     directory.mkdir()
     directory.chmod(0o750)
-
-    def not_owner(self, mode):
-        raise PermissionError("operation not permitted")
-
     if directory.stat().st_uid == 0:  # running as root: hand the directory to someone else
         os.chown(directory, 4243, -1)
-    monkeypatch.setattr(Path, "chmod", not_owner)
+    monkeypatch.setattr(os, "geteuid", lambda: service_uid, raising=False)
+    with pytest.raises(ConfigurationError, match="owned by another account"):
+        server._token_storage(_storage(tmp_path))
+    assert directory.stat().st_mode & 0o777 == 0o750
+
+
+def test_store_directory_owned_by_root_and_private_continues(tmp_path, monkeypatch, caplog):
+    directory = Path(tmp_path) / TOKEN_STORE_DIRNAME
+    directory.mkdir()
+    directory.chmod(0o750)
+    _owned_by_root(monkeypatch, directory)
     monkeypatch.setattr(os, "geteuid", lambda: 4242, raising=False)
-    with pytest.raises(ConfigurationError, match="owned or writable by another account"):
+    monkeypatch.setattr(Path, "chmod", _not_owner)
+    with caplog.at_level(logging.WARNING, logger="soma_mcp"):
+        server._token_storage(_storage(tmp_path))
+    assert "not writable by group or others, continuing" in caplog.text
+
+
+def test_store_directory_owned_by_root_and_group_writable_refuses(tmp_path, monkeypatch):
+    directory = Path(tmp_path) / TOKEN_STORE_DIRNAME
+    directory.mkdir()
+    directory.chmod(0o775)
+    _owned_by_root(monkeypatch, directory)
+    monkeypatch.setattr(os, "geteuid", lambda: 4242, raising=False)
+    monkeypatch.setattr(Path, "chmod", _not_owner)
+    with pytest.raises(ConfigurationError, match="writable by group or others"):
         server._token_storage(_storage(tmp_path))
 
 
@@ -140,12 +182,8 @@ def test_store_directory_writable_by_others_that_cannot_be_fixed_refuses(tmp_pat
     directory = Path(tmp_path) / TOKEN_STORE_DIRNAME
     directory.mkdir()
     directory.chmod(0o777)
-
-    def not_owner(self, mode):
-        raise PermissionError("operation not permitted")
-
-    monkeypatch.setattr(Path, "chmod", not_owner)
-    with pytest.raises(ConfigurationError, match="owned or writable by another account"):
+    monkeypatch.setattr(Path, "chmod", _not_owner)
+    with pytest.raises(ConfigurationError, match="writable by group or others"):
         server._token_storage(_storage(tmp_path))
 
 
@@ -153,11 +191,7 @@ def test_store_directory_not_ours_but_private_continues(tmp_path, monkeypatch, c
     directory = Path(tmp_path) / TOKEN_STORE_DIRNAME
     directory.mkdir()
     directory.chmod(0o750)
-
-    def not_owner(self, mode):
-        raise PermissionError("operation not permitted")
-
-    monkeypatch.setattr(Path, "chmod", not_owner)
+    monkeypatch.setattr(Path, "chmod", _not_owner)
     with caplog.at_level(logging.WARNING, logger="soma_mcp"):
         server._token_storage(_storage(tmp_path))
     assert "not writable by group or others, continuing" in caplog.text

@@ -113,10 +113,12 @@ Fernet provides **confidentiality, not integrity of the store as a whole**: the
 upstream wrapper returns an entry that was written without encryption as-is,
 and a ciphertext copied from one entry into another still decrypts. Someone who
 can write to `mcp_oauth/` could therefore plant client registrations or swap
-token entries without the key. The server restricts the directory to mode 0700
-on every start, and refuses to start if it cannot and the directory is writable
-by group or others; keep the data volume writable by the service user only.
-(With `DiskStore`, the same write access meant code execution.)
+token entries without the key. The server refuses to start if the directory
+belongs to an account other than the service user or root (its owner can
+always make it writable again), restricts it to mode 0700 on every start, and
+refuses to start if that fails while the directory is writable by group or
+others. Keep the data volume writable by the service user only. (With
+`DiskStore`, the same write access meant code execution.)
 
 ## 6. Prompt-injection fence (egress)
 
@@ -185,12 +187,14 @@ the server and checks nothing leaks.
   tokens, and only the release's `publish` job can write. That job installs and
   runs no third-party Python.
 - Release artifacts are built by a job that runs only the hash-pinned build
-  front end and the pinned build backend, and are hashed at once; the wheel's
-  dependencies run only in a separate read-only smoke job. `publish` checks the
-  artifacts against the build digests (exact file set), records a GitHub
-  build-provenance attestation (`gh attestation verify`), assembles the release
-  notes from trusted job outputs and attaches the wheel, the sdist and
-  `SHA256SUMS` to the release.
+  front end and backend, and are hashed at once. Within the release run, the
+  wheel's dependencies run in a separate read-only smoke job and in the CI jobs
+  of `verify`, which never handle the release artifacts. `publish` checks the
+  artifacts against the build digests (exact file set), validates the smoke
+  output and the release state before it records a GitHub build-provenance
+  attestation (`gh attestation verify`), assembles the release notes from
+  trusted job outputs and attaches the wheel, the sdist and `SHA256SUMS` to the
+  release. The wheel is reproducible from the tag (`RELEASE.md` §8, §9).
 
 ## 12. Operator checklist
 

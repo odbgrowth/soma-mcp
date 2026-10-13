@@ -102,21 +102,26 @@ def _token_storage(storage: TokenStorage) -> AsyncKeyValue:
 
     directory = storage.directory
     directory.mkdir(mode=0o700, parents=True, exist_ok=True)
+    # Whoever can write the store can plant entries (see above), and the owner
+    # can always make it writable again, even after a chmod by root. So the
+    # directory must belong to this user or root, whether or not chmod works.
+    if hasattr(os, "geteuid") and directory.stat().st_uid not in (os.geteuid(), 0):
+        raise ConfigurationError(
+            f"OAuth token store {directory} is owned by another account; it must "
+            f"belong to the service user (or root)")
     try:
         directory.chmod(0o700)  # mkdir's mode does not tighten an existing directory
     except OSError:
-        # Not ours to chmod. Acceptable only if nobody but this user or root can
-        # write it: whoever can write the store can plant entries (see above),
-        # and another owner can always write (or re-open) it.
-        status = directory.stat()
-        foreign_owner = hasattr(os, "geteuid") and status.st_uid not in (os.geteuid(), 0)
-        if status.st_mode & 0o022 or foreign_owner:
+        # Not ours to chmod (for example a root-owned directory under a non-root
+        # service, or a read-only mount).
+        # Acceptable only if neither group nor others can write it.
+        if directory.stat().st_mode & 0o022:
             raise ConfigurationError(
                 f"OAuth token store {directory} cannot be restricted to mode 0700 and "
-                f"is owned or writable by another account; fix its owner or permissions"
+                f"is writable by group or others; fix its owner or permissions"
             ) from None
-        log.warning("Could not restrict %s to mode 0700; it is owned by this user or root "
-                    "and not writable by group or others, continuing.", directory)
+        log.warning("Could not restrict %s to mode 0700; it belongs to this user or root "
+                    "and is not writable by group or others, continuing.", directory)
     store = FileTreeStore(
         data_directory=directory,
         key_sanitization_strategy=FileTreeV1KeySanitizationStrategy(directory),
@@ -292,7 +297,8 @@ def _host_origin_protection(authenticated: bool) -> bool | None:
     FastMCP adds FASTMCP_HTTP_ALLOWED_HOSTS / FASTMCP_HTTP_ALLOWED_ORIGINS to
     those lists; a wildcard in either switches the corresponding check off.
     Authenticated: None, i.e. FastMCP's own setting (off unless the operator sets
-    FASTMCP_HTTP_HOST_ORIGIN_PROTECTION / FASTMCP_HTTP_ALLOWED_HOSTS). Every
+    FASTMCP_HTTP_HOST_ORIGIN_PROTECTION=true, with the public host in
+    FASTMCP_HTTP_ALLOWED_HOSTS; the host list alone does not enable it). Every
     request needs a bearer token, and a reverse proxy forwards the public Host
     header, which a default guard would reject.
     """
