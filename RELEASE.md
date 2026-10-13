@@ -307,13 +307,14 @@ That job needs its own ADR and approval before it is added.
 Configure these in GitHub (Settings → Rules / Environments / Code security);
 this repository cannot enforce them.
 
-**Before merging a pull request that changes CI jobs:**
+**`main` (configured 2026-10-13, ruleset "Main protection"):**
 
-- The `main` ruleset's required status checks are the ten check names in §4
-  (source: GitHub Actions), with "require branches to be up to date". The
-  existing ruleset requires `Python 3.12`; `ci.yml` keeps producing that name,
-  so it stays satisfied, but only the full list gates every job. Keep pull
-  requests required, force pushes and deletions blocked, and no bypass actors.
+- Required status checks: the ten check names in §4 (source: GitHub Actions),
+  with "require branches to be up to date". A pull request that renames, adds
+  or removes a CI job updates this list in the same change window: a renamed
+  job leaves every pull request waiting on a check that never reports. Pull
+  requests required, unresolved review threads block the merge, force pushes
+  and deletions blocked, no bypass actors.
 - Required approvals: GitHub never lets a pull request's author approve it.
   While agents open pull requests under the repository owner's account, an
   approval count above zero blocks every such PR; the merge gate is then Onno's

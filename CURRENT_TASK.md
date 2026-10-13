@@ -25,9 +25,8 @@ deployment.
 - **Risks/unknowns:** clients re-register once (new token store); unauthenticated
   servers now bind to loopback; GitHub branch, tag and environment protection
   must be configured by hand (RELEASE.md).
-- **Next action and required approval:** Onno approves ADR-003. Before the
-  merge, Onno sets the `main` ruleset's required checks to the ten names in
-  RELEASE.md §4 (this PR changes CI jobs) and approves the merge. Before the
+- **Next action and required approval:** Onno approves ADR-003 and the merge
+  (the `main` ruleset requires all ten checks since 2026-10-13). Before the
   tag, Onno configures the `release` environment, the tag ruleset, immutable
   releases and Dependabot security updates (RELEASE.md, "Repository
   settings"), then approves and creates the annotated tag `v0.2.0`

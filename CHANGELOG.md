@@ -38,8 +38,8 @@ MCP protocol `2026-07-28`, plus the handshake revisions `2024-11-05` to
   allowlists, two-step delete, rate limit, prompt-injection fence, error
   masking, audit log), configuration, token storage, version contract and docs.
 - CI pipeline (`.github/workflows/ci.yml`): Ruff, mypy, Python 3.10 to 3.14
-  test matrix with coverage gate (check names `Python 3.x`, matching the `main`
-  ruleset), dependency-floor job that asserts the installed floors
+  test matrix with coverage gate (check names `Python 3.x`; the `main` ruleset
+  requires all ten CI checks by name), dependency-floor job that asserts the installed floors
   (`tools/check_floors.py`), documentation checks, pip-audit, gitleaks, package
   build, `twine check` and a clean-wheel smoke test.
 - Tag-triggered release workflow (`.github/workflows/release.yml`): tag/version
