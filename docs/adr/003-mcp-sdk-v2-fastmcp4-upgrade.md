@@ -1,8 +1,8 @@
 # ADR-003: MCP Python SDK v2, FastMCP 4 and protocol 2026-07-28
 
-Status: Proposed. Changes the protocol stack, OAuth token storage and the local
-trust boundary, so it needs Onno's explicit approval before merge
-([`AGENTS.md`](../../AGENTS.md)).
+Status: Accepted (approved by Onno on 2026-10-13). Changes the protocol stack,
+OAuth token storage and the local trust boundary, which needs Onno's explicit
+approval before merge ([`AGENTS.md`](../../AGENTS.md)).
 
 Date: 2026-10-13
 

@@ -15,8 +15,8 @@ deployment.
 - **Branch/worktree:** `claude-clients/exciting-faraday-q6gn4k` (assigned by the
   session), draft PR against `main`.
 - **Decisions and current state:** [ADR-003](docs/adr/003-mcp-sdk-v2-fastmcp4-upgrade.md),
-  status Proposed. Implementation, tests and documentation complete on the
-  branch; reviews and CI tracked in the draft PR.
+  accepted by Onno on 2026-10-13, who also approved the merge. Implementation,
+  tests, documentation, reviews and CI are complete; see the PR.
 - **Files changed:** see the PR; summary in [`CHANGELOG.md`](CHANGELOG.md) under 0.2.0.
 - **Validation evidence:** `.devflows/verify`, `python3 .devflows/run.py package`,
   `tools/run_conformance.sh`, the ten CI checks (quality, the Python 3.10 to
@@ -25,9 +25,7 @@ deployment.
 - **Risks/unknowns:** clients re-register once (new token store); unauthenticated
   servers now bind to loopback; GitHub branch, tag and environment protection
   must be configured by hand (RELEASE.md).
-- **Next action and required approval:** Onno approves ADR-003 and the merge
-  (the `main` ruleset requires all ten checks since 2026-10-13). Before the
-  tag, Onno configures the `release` environment, the tag ruleset, immutable
+- **Next action and required approval:** before the tag, Onno configures the `release` environment, the tag ruleset, immutable
   releases and Dependabot security updates (RELEASE.md, "Repository
   settings"), then approves and creates the annotated tag `v0.2.0`
   (RELEASE.md, step 7).
