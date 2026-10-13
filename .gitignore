@@ -12,10 +12,15 @@ venv/
 .pytest_cache/
 .ruff_cache/
 .mypy_cache/
+.coverage
+.coverage.*
+coverage.xml
+htmlcov/
 
 # Runtime data
 mcp_audit.jsonl
 mcp_tokens/
+mcp_oauth/
 .env
 .env.*
 !.env.example

@@ -13,19 +13,23 @@ environment. The kernel wires it into the tools:
 This mirrors SOMA's production `soma_guard.py`.
 """
 
+from __future__ import annotations
+
 import json
 import os
 import time
 from collections import defaultdict, deque
+from collections.abc import Callable
 from datetime import datetime
+from typing import Any
 
 WINDOW_S = 60
 _MAX_SUBJECTS = 10_000  # soft cap: bounds growth of _calls
-_calls: defaultdict[str, deque] = defaultdict(deque)
+_calls: defaultdict[str, deque[float]] = defaultdict(deque)
 
 
 def rate_limit_check(subject: str | None, limit: int | None = None,
-                     _clock=time.monotonic) -> dict | None:
+                     _clock: Callable[[], float] = time.monotonic) -> dict[str, Any] | None:
     """Return an error dict if the subject is over budget, else None (and count
     the call). Limit via env MCP_RATE_LIMIT (calls/minute, default 30); 0 or
     negative disables it. _clock is injectable for tests."""
@@ -38,8 +42,8 @@ def rate_limit_check(subject: str | None, limit: int | None = None,
     while q and now - q[0] > WINDOW_S:
         q.popleft()
     if len(q) >= limit:
-        return {"fout": f"rate-limit: at most {limit} calls per minute "
-                        f"for this subject — try again shortly"}
+        return {"error": f"rate-limit: at most {limit} calls per minute "
+                         f"for this subject — try again shortly"}
     q.append(now)
     # Bound unbounded growth of _calls: a caller cycling through changing (or
     # forged) subjects would otherwise leave an empty deque per subject. Evict

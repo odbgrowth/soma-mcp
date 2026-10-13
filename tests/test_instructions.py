@@ -82,33 +82,34 @@ def test_version_matches_text_hash():
 
 
 def test_read_only_hint_true_for_exactly_the_read_tools():
-    read_only = {t for t, a in ANNOTATIONS.items() if a["readOnlyHint"]}
+    read_only = {t for t, a in ANNOTATIONS.items() if a.read_only_hint}
     assert read_only == READ_ONLY_TOOLS
 
 
 def test_destructive_hint_true_for_exactly_update_and_delete():
-    destructive = {t for t, a in ANNOTATIONS.items() if a["destructiveHint"]}
+    destructive = {t for t, a in ANNOTATIONS.items() if a.destructive_hint}
     assert destructive == DESTRUCTIVE_TOOLS
 
 
-_HINT_KEYS = {"readOnlyHint", "destructiveHint", "idempotentHint", "openWorldHint"}
+WIRE_HINT_KEYS = {"readOnlyHint", "destructiveHint", "idempotentHint", "openWorldHint"}
 
 
-def _hints(annotations: ToolAnnotations) -> dict[str, bool]:
-    """The four hint fields as a camelCase dict, independent of whether the
-    installed mcp version models ToolAnnotations with snake_case attributes
-    (mcp 2.x) or the camelCase names themselves (mcp 1.x, per pyproject's
-    mcp>=1.27.2 floor)."""
-    dumped = annotations.model_dump(by_alias=True, exclude_none=True)
-    return {k: v for k, v in dumped.items() if k in _HINT_KEYS}
+def _wire_hints(annotations: ToolAnnotations) -> dict[str, bool]:
+    """The four hints exactly as they serialize onto the MCP wire (camelCase)."""
+    dumped = annotations.model_dump(by_alias=True, exclude_none=True, mode="json")
+    return {k: v for k, v in dumped.items() if k in WIRE_HINT_KEYS}
 
 
 @pytest.mark.parametrize("tool", sorted(ANNOTATIONS))
-def test_annotations_validate_as_tool_annotations(tool):
-    fields = ANNOTATIONS[tool]
-    assert set(fields) == _HINT_KEYS
-    annotations = ToolAnnotations(**fields)
-    assert _hints(annotations) == fields
+def test_every_hint_is_explicit_and_serializes_camelcase(tool):
+    annotations = ANNOTATIONS[tool]
+    assert isinstance(annotations, ToolAnnotations)
+    hints = _wire_hints(annotations)
+    assert set(hints) == WIRE_HINT_KEYS, f"{tool} leaves a hint to its default"
+    assert hints["readOnlyHint"] is annotations.read_only_hint
+    assert hints["destructiveHint"] is annotations.destructive_hint
+    assert hints["idempotentHint"] is annotations.idempotent_hint
+    assert hints["openWorldHint"] is annotations.open_world_hint is False
 
 
 def test_server_instructions_and_tool_annotations_match(monkeypatch):
@@ -124,4 +125,4 @@ def test_server_instructions_and_tool_annotations_match(monkeypatch):
     for name, expected in ANNOTATIONS.items():
         actual = by_name[name]
         assert actual is not None, f"{name} has no annotations"
-        assert _hints(actual) == expected
+        assert _wire_hints(actual) == _wire_hints(expected)

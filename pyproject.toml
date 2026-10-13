@@ -1,35 +1,132 @@
 [build-system]
-requires = ["setuptools>=68"]
+# setuptools>=77 understands PEP 639 license expressions (`license = "Apache-2.0"`).
+requires = ["setuptools>=77"]
 build-backend = "setuptools.build_meta"
 
 [project]
 name = "soma-mcp"
-version = "0.1.0"
+# Single source of truth: soma_mcp.__version__ (read statically by setuptools).
+dynamic = ["version"]
 description = "A private, self-hosted reference implementation of the Model Context Protocol"
 readme = "README.md"
 requires-python = ">=3.10"
-license = { text = "Apache-2.0" }
+license = "Apache-2.0"
+license-files = ["LICENSE", "NOTICE"]
 authors = [{ name = "SOMA" }]
 keywords = ["mcp", "model-context-protocol", "fastmcp", "memory", "rag", "self-hosted"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3 :: Only",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
+    "Topic :: Software Development :: Libraries :: Application Frameworks",
+    "Typing :: Typed",
+]
+# Bounded to the next major: FastMCP 5 or MCP SDK 3 must be adopted deliberately.
+# `mcp` stays a direct dependency because SOMA imports its protocol types
+# (`mcp.types.ToolAnnotations`, `mcp.types.version`) and documents its Client.
 dependencies = [
-    "fastmcp>=3.4.2",
-    "mcp>=1.27.2",
+    "fastmcp>=4.1,<5",
+    "mcp>=2.3,<3",
 ]
 
 [project.optional-dependencies]
-# Only needed for encrypted, persistent OAuth token storage (production).
-auth = ["cryptography", "py-key-value-aio[disk]"]
-dev = ["pytest>=8"]
+# Encrypted, persistent OAuth token storage (FileTreeStore + Fernet). FastMCP 4
+# already pulls these in; the extra pins the features SOMA imports directly.
+auth = [
+    "cryptography>=50",  # first release without known advisories (pip-audit, 2026-10)
+    "py-key-value-aio[filetree,wrappers-encryption]>=0.4.4,<0.5",
+]
+# Contributor tooling. Linters are bounded to a minor series so a new release
+# cannot turn CI red on its own; Dependabot proposes the bumps.
+dev = [
+    "pytest>=8",
+    "pytest-cov>=6",
+    "ruff>=0.17,<0.18",
+    "mypy>=2.4,<2.5",
+    "build>=1.2",
+    "twine>=6.1",
+    "pip-audit>=2.9",
+]
 
 [project.urls]
 Homepage = "https://github.com/odbgrowth/soma-mcp"
-Specification = "https://modelcontextprotocol.io"
+Repository = "https://github.com/odbgrowth/soma-mcp"
+Documentation = "https://github.com/odbgrowth/soma-mcp/tree/main/docs"
+Changelog = "https://github.com/odbgrowth/soma-mcp/blob/main/CHANGELOG.md"
+Issues = "https://github.com/odbgrowth/soma-mcp/issues"
+Specification = "https://modelcontextprotocol.io/specification/2026-07-28"
 
 [project.scripts]
 soma-mcp = "soma_mcp.server:main"
 
+[tool.setuptools.dynamic]
+version = { attr = "soma_mcp.__version__" }
+
 [tool.setuptools.packages.find]
 where = ["src"]
 
+[tool.setuptools.package-data]
+soma_mcp = ["py.typed"]
+
 [tool.pytest.ini_options]
 pythonpath = ["src"]
+testpaths = ["tests"]
+markers = [
+    "integration: exercises the real MCP transport (in-memory client or local HTTP)",
+]
+filterwarnings = [
+    # A camelCase read on an SDK v2 object means a migration leftover: fail loudly.
+    "error::fastmcp.exceptions.FastMCPDeprecationWarning",
+]
+
+[tool.coverage.run]
+source = ["soma_mcp"]
+branch = true
+
+[tool.coverage.report]
+# Measured at 98.6% for 0.2.0, with kernel.py and guard.py at 100%. The gate
+# leaves room for per-Python branch differences. Raise it when coverage grows;
+# never lower it silently (RELEASE.md, "Coverage").
+fail_under = 95
+show_missing = true
+skip_covered = true
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+extend-exclude = [".codex", ".devflows"]
+
+[tool.ruff.lint]
+select = [
+    "E",   # pycodestyle errors
+    "W",   # pycodestyle warnings
+    "F",   # pyflakes
+    "I",   # import sorting
+    "B",   # bugbear
+    "UP",  # pyupgrade (py310 floor)
+    "S",   # bandit security rules
+    "RUF", # ruff-specific correctness rules
+]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/*" = ["S101", "S104", "S105", "S106", "S108", "S603"]
+"tools/*" = ["S603"]
+
+[tool.mypy]
+python_version = "3.10"
+files = ["src/soma_mcp", "tools"]
+check_untyped_defs = true
+disallow_incomplete_defs = true
+disallow_untyped_defs = true
+no_implicit_optional = true
+strict_equality = true
+warn_redundant_casts = true
+warn_return_any = true
+warn_unused_ignores = true
