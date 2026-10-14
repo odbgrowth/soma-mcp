@@ -52,7 +52,7 @@ dev = [
     "pytest-cov>=6",
     "ruff>=0.17,<0.18",
     "mypy>=2.4,<2.5",
-    "build>=1.2",
+    "build>=1.6.1",
     "twine>=6.1",
     "pip-audit>=2.9",
 ]
