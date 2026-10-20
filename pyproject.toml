@@ -34,7 +34,7 @@ classifiers = [
 # cryptography is used on every OAuth path (JWT verification, Fernet stores);
 # 50 is the first release without known advisories (pip-audit, 2026-10).
 dependencies = [
-    "cryptography>=50",
+    "cryptography>=50.0.2",
     "fastmcp>=4.1,<5",
     "mcp>=2.3,<3",
 ]
