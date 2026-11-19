@@ -62,7 +62,7 @@ Enforced centrally in the kernel, never per tool:
 
 - **Access** (`subject_check`): every tool except `soma_whoami` requires the
   subject in `MCP_TOEGANG_SUBJECTS`; writes also require `MCP_SCHRIJF_SUBJECTS`.
-  Fail closed unless `MCP_SINGLE_USER=1`.
+  Fail closed unless `MCP_SINGLE_USER=1` and `MCP_TOEGANG_SUBJECTS` is empty.
 - **Rate limit and audit** (`guard.py`): per-subject sliding window on every
   call; one JSONL line per write action in `$SOMA_DATA/mcp_audit.jsonl`.
 - **Data-boundary fence** (`_fence`): every memory text a tool returns (search,

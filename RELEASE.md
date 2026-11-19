@@ -224,6 +224,9 @@ reproducible (archive metadata).
 
 ## 9. Post-release verification
 
+Use a current GitHub CLI from the official packages: the 2.46 package that
+Ubuntu ships has no `gh attestation` command (checked with 2.105.0).
+
 ```bash
 VERSION=X.Y.Z
 mkdir "/tmp/soma-mcp-$VERSION" && cd "/tmp/soma-mcp-$VERSION"
@@ -231,7 +234,8 @@ gh release download "v$VERSION" --repo odbgrowth/soma-mcp
 sha256sum --check SHA256SUMS
 for f in "soma_mcp-$VERSION-py3-none-any.whl" "soma_mcp-$VERSION.tar.gz"; do
   gh attestation verify "$f" --repo odbgrowth/soma-mcp \
-    --signer-workflow odbgrowth/soma-mcp/.github/workflows/release.yml
+    --signer-workflow odbgrowth/soma-mcp/.github/workflows/release.yml \
+    --source-ref "refs/tags/v$VERSION"
 done
 
 python -m venv venv

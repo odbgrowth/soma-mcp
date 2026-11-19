@@ -120,7 +120,8 @@ applies:
 
 - `MCP_TOEGANG_SUBJECTS` for every tool except `soma_whoami`;
 - `MCP_SCHRIJF_SUBJECTS` additionally for the write tools;
-- fail closed when an allowlist is missing, unless `MCP_SINGLE_USER=1`;
+- fail closed when an allowlist is missing, unless `MCP_SINGLE_USER=1` and
+  `MCP_TOEGANG_SUBJECTS` is empty;
 - a per-subject sliding-window rate limit (`MCP_RATE_LIMIT`, default 30/min).
 
 Details: [`auth.md`](auth.md).
