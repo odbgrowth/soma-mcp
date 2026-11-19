@@ -35,7 +35,7 @@ call except `soma_whoami`:
 - write access (`soma_write`, `soma_update`, `soma_delete`): additionally in
   `MCP_SCHRIJF_SUBJECTS`;
 - **fail closed:** an empty or missing allowlist denies everything unless
-  `MCP_SINGLE_USER` is exactly `1`.
+  `MCP_SINGLE_USER` is exactly `1` and `MCP_TOEGANG_SUBJECTS` is empty.
 
 Even a correctly issued token from your own Auth0 tenant cannot read the memory
 unless its subject is listed. Details: [`auth.md`](auth.md).
@@ -181,7 +181,10 @@ the server and checks nothing leaks.
 - CI fails on known vulnerabilities in the runtime dependency set and in the
   declared floors of the direct dependencies (pip-audit), and on committed
   secrets (gitleaks, full history). It also runs weekly on `main`, so a newly
-  published advisory turns it red without a code change.
+  published advisory turns it red without a code change. On Python 3.10 no patched
+  `dnspython` (pulled in by `email-validator`) exists, because 2.9.x needs Python 3.11,
+  so the floor audit ignores its two advisories (CVE-2026-114605, CVE-2026-128089);
+  the runtime audit ignores nothing.
 - The conformance job installs the official suite from
   `tools/conformance/package-lock.json` (every transitive package pinned with an
   integrity hash) with `npm ci --ignore-scripts`. The job has a read-only token
