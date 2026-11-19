@@ -120,9 +120,10 @@ def test_release_notes_links_point_at_the_tag():
 
 def test_declared_floors_are_read_from_pyproject():
     floors = check_floors.declared_floors()
-    assert floors == {"cryptography": "50", "fastmcp": "4.1", "mcp": "2.3",
+    assert floors == {"cryptography": "50", "fastmcp": "4.1.2", "mcp": "2.3",
                       "py-key-value-aio": "0.4.4"}
     assert check_floors.release("4.1") == check_floors.release("4.1.0") == (4, 1)
+    assert check_floors.release("4.1.2") == (4, 1, 2) != check_floors.release("4.1")
     assert check_floors.release("50.0.2") != check_floors.release("50")
 
 
