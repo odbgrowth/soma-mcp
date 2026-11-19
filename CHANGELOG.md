@@ -22,6 +22,9 @@ the **MCP protocol revision** the server speaks.
   is stripped), a new file is created owner-only (`0600`), and a failed audit write
   logs a warning (tool and error type only) instead of passing silently; the tool
   call itself still succeeds.
+- Raise the `fastmcp` floor from `>=4.1` to `>=4.1.2`: earlier 4.1 releases carry
+  GHSA-7xgj-8392-5q4r and GHSA-vqqp-x5qm-5qp4, fixed in 4.1.2. The dependency-floor
+  job audits that floor, so it also stops reporting them.
 
 ## [0.2.0] - 2026-10-13
 

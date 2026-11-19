@@ -10,7 +10,7 @@ Context Protocol, revision **2026-07-28**. Gap analysis and test evidence:
 |---|---|
 | Protocol | MCP **2026-07-28**; handshake revisions 2024-11-05, 2025-03-26, 2025-06-18, 2025-11-25 for older clients |
 | Framing | JSON-RPC 2.0 |
-| Framework | [FastMCP](https://github.com/PrefectHQ/fastmcp) `>=4.1,<5` on the [MCP Python SDK](https://github.com/modelcontextprotocol/python-sdk) `>=2.3,<3` |
+| Framework | [FastMCP](https://github.com/PrefectHQ/fastmcp) `>=4.1.2,<5` on the [MCP Python SDK](https://github.com/modelcontextprotocol/python-sdk) `>=2.3,<3` |
 | Transport | Streamable HTTP at `/mcp`, default port `8000` |
 | Authorization | OAuth 2.1 through Auth0 (`Auth0Provider`), optional for local use |
 | Server identity | `serverInfo.name` = `SOMA`, `serverInfo.version` = `soma_mcp.__version__` |

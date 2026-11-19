@@ -53,7 +53,7 @@ is shared with the whole ecosystem; the substrate stays yours.
 | Component | Version |
 |---|---|
 | SOMA MCP | `0.2.0` ([changelog](CHANGELOG.md)) |
-| FastMCP | `>=4.1,<5` ([PrefectHQ/fastmcp](https://github.com/PrefectHQ/fastmcp)) |
+| FastMCP | `>=4.1.2,<5` ([PrefectHQ/fastmcp](https://github.com/PrefectHQ/fastmcp)) |
 | MCP Python SDK | `>=2.3,<3` ([modelcontextprotocol/python-sdk](https://github.com/modelcontextprotocol/python-sdk)) |
 | MCP protocol | **2026-07-28**, plus the handshake revisions 2024-11-05, 2025-03-26, 2025-06-18 and 2025-11-25, negotiated per request by the SDK |
 | Python | 3.10, 3.11, 3.12, 3.13, 3.14 |
