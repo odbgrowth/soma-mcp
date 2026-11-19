@@ -43,7 +43,7 @@ dependencies = [
 # Encrypted, persistent OAuth token storage (FileTreeStore + Fernet). FastMCP 4
 # already pulls this in; the extra pins the store features SOMA imports directly.
 auth = [
-    "py-key-value-aio[filetree,wrappers-encryption]>=0.4.4,<0.5",
+    "py-key-value-aio[filetree,wrappers-encryption]>=0.4.6,<0.5",
 ]
 # Contributor tooling. Linters are bounded to a minor series so a new release
 # cannot turn CI red on its own; Dependabot proposes the bumps.
