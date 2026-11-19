@@ -93,6 +93,32 @@ def test_write_allowlist_alone_does_not_grant_access(monkeypatch):
     assert "error" in Kernel(InMemoryEngine()).write("auth0|writer", "x")
 
 
+def test_single_user_flag_does_not_open_writes_next_to_an_access_list(monkeypatch):
+    """ADR-004: an access allowlist ends single-user mode, so an empty write
+    allowlist means nobody writes, not everybody."""
+    monkeypatch.setenv("MCP_SINGLE_USER", "1")
+    monkeypatch.setenv("MCP_TOEGANG_SUBJECTS", "auth0|owner,auth0|reader")
+    monkeypatch.setenv("MCP_RATE_LIMIT", "0")
+    k = Kernel(InMemoryEngine())
+    for subject in ("auth0|owner", "auth0|reader"):
+        assert k.write(subject, "a fact")["error"].startswith("no write access")
+        assert k.update(subject, "note-ref-0001", "x")["error"].startswith("no write access")
+        deleted = k.delete(subject, "note-ref-0001", confirm=True)
+        assert deleted["error"].startswith("no write access")
+        assert k.search(subject, "anything") == []
+    assert "error" in k.search("auth0|stranger", "anything")[0]
+
+
+def test_single_user_with_only_a_write_list_keeps_reads_open(monkeypatch):
+    monkeypatch.setenv("MCP_SINGLE_USER", "1")
+    monkeypatch.setenv("MCP_SCHRIJF_SUBJECTS", "auth0|owner")
+    monkeypatch.setenv("MCP_RATE_LIMIT", "0")
+    k = Kernel(InMemoryEngine())
+    assert k.write("auth0|owner", "a fact") == {"status": "saved", "chunks": 1}
+    assert k.search("auth0|reader", "fact")[0]["id"] == "note-ref-0001-0"
+    assert k.write("auth0|reader", "x")["error"].startswith("no write access")
+
+
 # --- rate limit ---
 
 def test_rate_limit_enforced_per_subject(monkeypatch):

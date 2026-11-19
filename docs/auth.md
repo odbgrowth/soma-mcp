@@ -145,7 +145,9 @@ MCP_TOEGANG_SUBJECTS=auth0|yourSubjectId
 MCP_SCHRIJF_SUBJECTS=auth0|yourSubjectId
 ```
 
-`MCP_SINGLE_USER=1` skips the allowlists. Without Auth0 that is the local quick
+`MCP_SINGLE_USER=1` runs without an access allowlist; as soon as
+`MCP_TOEGANG_SUBJECTS` is set it no longer applies and an empty
+`MCP_SCHRIJF_SUBJECTS` means nobody writes. Without Auth0 that is the local quick
 start. With Auth0 it admits **every account that can sign in to the Auth0
 application** (sign-up and social logins included), so the server logs a
 warning; use the allowlists instead.

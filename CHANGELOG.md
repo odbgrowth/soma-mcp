@@ -11,6 +11,14 @@ the **MCP protocol revision** the server speaks.
 
 ## [Unreleased]
 
+### Security
+
+- `MCP_SINGLE_USER=1` now applies only while `MCP_TOEGANG_SUBJECTS` is empty. With
+  an access list and no `MCP_SCHRIJF_SUBJECTS`, nobody can write, update or delete
+  any more (before, every subject on the access list could); set
+  `MCP_SCHRIJF_SUBJECTS` if you relied on that
+  ([ADR-004](docs/adr/004-single-user-mode-and-allowlists.md)).
+
 ## [0.2.0] - 2026-10-13
 
 First tagged release. `0.1.0` was the untagged initial publication of the

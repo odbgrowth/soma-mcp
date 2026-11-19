@@ -21,6 +21,7 @@ from . import guard
 from .engine import Engine
 
 MAX_NOTE_CHARS = 25_000  # mirrors the UI limit; prevents MB-sized notes via MCP
+ACCESS_ALLOWLIST_ENV = "MCP_TOEGANG_SUBJECTS"
 
 # Egress data boundary: memory can contain text that poses as an instruction to
 # the calling agent (prompt injection via a note/document). Every memory text the
@@ -46,9 +47,11 @@ def _meta_fields(m: dict[str, Any] | None) -> dict[str, Any]:
 
 
 def single_user() -> bool:
-    """Deliberate single-user mode (no allowlist needed). Without this flag the
-    guard fails CLOSED when the allowlist is missing — see subject_check."""
-    return os.environ.get("MCP_SINGLE_USER", "").strip() == "1"
+    """Deliberate single-user mode (no allowlist needed): MCP_SINGLE_USER=1 and no
+    access allowlist. Next to an access allowlist every allowlist fails CLOSED
+    (ADR-004). Without the flag the guard fails closed too — see subject_check."""
+    return (os.environ.get("MCP_SINGLE_USER", "").strip() == "1"
+            and not os.environ.get(ACCESS_ALLOWLIST_ENV, "").strip())
 
 
 def subject_check(subject: str | None, env_name: str, right: str) -> Result | None:
@@ -76,7 +79,7 @@ class Kernel:
         """Instance-wide access + per-subject rate limit. Every tool call quickly
         costs an LLM call — an agent in a loop would otherwise burn budget."""
         return (guard.rate_limit_check(subject)
-                or subject_check(subject, "MCP_TOEGANG_SUBJECTS", "access to this instance"))
+                or subject_check(subject, ACCESS_ALLOWLIST_ENV, "access to this instance"))
 
     def _write_access(self, subject: str | None) -> Result | None:
         """Defense-in-depth on top of access for writing tools."""
