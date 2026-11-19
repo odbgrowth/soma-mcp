@@ -11,6 +11,12 @@ the **MCP protocol revision** the server speaks.
 
 ## [Unreleased]
 
+### Security
+
+- Raise the `fastmcp` floor from `>=4.1` to `>=4.1.2`: earlier 4.1 releases carry
+  GHSA-7xgj-8392-5q4r and GHSA-vqqp-x5qm-5qp4, fixed in 4.1.2. The dependency-floor
+  job audits that floor, so it also stops reporting them.
+
 ## [0.2.0] - 2026-10-13
 
 First tagged release. `0.1.0` was the untagged initial publication of the
