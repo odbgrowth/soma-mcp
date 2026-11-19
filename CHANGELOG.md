@@ -18,6 +18,10 @@ the **MCP protocol revision** the server speaks.
   any more (before, every subject on the access list could); set
   `MCP_SCHRIJF_SUBJECTS` if you relied on that
   ([ADR-004](docs/adr/004-single-user-mode-and-allowlists.md)).
+- The audit log now follows `SOMA_DATA` like the token store (surrounding whitespace
+  is stripped), a new file is created owner-only (`0600`), and a failed audit write
+  logs a warning (tool and error type only) instead of passing silently; the tool
+  call itself still succeeds.
 
 ## [0.2.0] - 2026-10-13
 

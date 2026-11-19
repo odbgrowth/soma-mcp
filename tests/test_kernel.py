@@ -7,10 +7,13 @@ audit log) is covered without standing up an auth environment.
 """
 
 import json
+import logging
+import os
 from pathlib import Path
 
 import pytest
 
+from soma_mcp.config import data_dir
 from soma_mcp.engine import InMemoryEngine
 from soma_mcp.kernel import _DATA_BOUNDARY, MAX_NOTE_CHARS, Kernel
 
@@ -245,6 +248,38 @@ def test_writes_are_audited_without_note_text(single_user, tmp_path):
 def test_audit_failure_never_blocks_a_write(single_user, monkeypatch, tmp_path):
     monkeypatch.setenv("SOMA_DATA", str(Path(tmp_path) / "does-not-exist"))
     assert single_user.write("subj", "still saved")["status"] == "saved"
+
+
+def test_audit_log_follows_the_shared_data_directory(single_user, monkeypatch, tmp_path):
+    """A trailing newline in SOMA_DATA (a secret-file habit) must not move the log."""
+    monkeypatch.setenv("SOMA_DATA", f"{tmp_path}\n")
+    single_user.write("subj", "a fact")
+    assert (data_dir() / "mcp_audit.jsonl").is_file()
+    assert data_dir() == Path(tmp_path)
+
+
+def test_audit_failure_is_logged_for_every_line_without_the_target(
+        single_user, monkeypatch, tmp_path, caplog):
+    monkeypatch.setenv("SOMA_DATA", str(Path(tmp_path) / "does-not-exist"))
+    with caplog.at_level(logging.WARNING, logger="soma_mcp"):
+        assert single_user.write("subj", "secret medical fact")["status"] == "saved"
+        assert single_user.update("subj", "note-ref-0001", "corrected fact")["status"] == "updated"
+    records = [r for r in caplog.records if r.levelno == logging.WARNING]
+    assert len(records) == 2
+    assert "soma_write" in records[0].getMessage()
+    assert "soma_update" in records[1].getMessage()
+    assert "FileNotFoundError" in caplog.text
+    assert "note-ref-0001" not in caplog.text and "secret medical fact" not in caplog.text
+
+
+@pytest.mark.skipif(os.name != "posix", reason="POSIX file modes")
+def test_new_audit_file_is_owner_only(single_user, tmp_path):
+    previous = os.umask(0o022)  # a permissive umask must not leak into the audit file
+    try:
+        single_user.write("subj", "a fact")
+    finally:
+        os.umask(previous)
+    assert (Path(tmp_path) / "mcp_audit.jsonl").stat().st_mode & 0o777 == 0o600
 
 
 def test_debug_exposes_both_retrieval_stages(single_user):
