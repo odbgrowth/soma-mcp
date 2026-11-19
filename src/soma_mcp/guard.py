@@ -16,6 +16,7 @@ This mirrors SOMA's production `soma_guard.py`.
 from __future__ import annotations
 
 import json
+import logging
 import os
 import time
 from collections import defaultdict, deque
@@ -23,7 +24,12 @@ from collections.abc import Callable
 from datetime import datetime
 from typing import Any
 
+from .config import data_dir
+
+log = logging.getLogger("soma_mcp")
+
 WINDOW_S = 60
+_AUDIT_FILE_MODE = 0o600  # a new audit file is owner-only; an existing one is left alone
 _MAX_SUBJECTS = 10_000  # soft cap: bounds growth of _calls
 _calls: defaultdict[str, deque[float]] = defaultdict(deque)
 
@@ -58,15 +64,17 @@ def rate_limit_check(subject: str | None, limit: int | None = None,
 
 
 def audit_log(subject: str | None, tool: str, target: str = "") -> None:
-    """Append one JSONL line to the audit log on the data volume."""
-    path = os.path.join(os.environ.get("SOMA_DATA", "."), "mcp_audit.jsonl")
+    """Append one JSONL line to the audit log on the data volume. A failed write
+    is logged (tool and error type only) and never blocks the tool."""
+    path = data_dir() / "mcp_audit.jsonl"
     try:
-        with open(path, "a", encoding="utf-8") as f:
+        fd = os.open(path, os.O_WRONLY | os.O_APPEND | os.O_CREAT, _AUDIT_FILE_MODE)
+        with os.fdopen(fd, "a", encoding="utf-8") as f:
             f.write(json.dumps({
                 "time": datetime.now().isoformat(timespec="seconds"),
                 "subject": subject or "unknown",
                 "tool": tool,
                 "target": target,
             }, ensure_ascii=False) + "\n")
-    except OSError:
-        pass  # auditing must never block a write
+    except OSError as exc:
+        log.warning("audit log write failed for %s: %s", tool, type(exc).__name__)
