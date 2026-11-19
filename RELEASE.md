@@ -231,7 +231,8 @@ gh release download "v$VERSION" --repo odbgrowth/soma-mcp
 sha256sum --check SHA256SUMS
 for f in "soma_mcp-$VERSION-py3-none-any.whl" "soma_mcp-$VERSION.tar.gz"; do
   gh attestation verify "$f" --repo odbgrowth/soma-mcp \
-    --signer-workflow odbgrowth/soma-mcp/.github/workflows/release.yml
+    --signer-workflow odbgrowth/soma-mcp/.github/workflows/release.yml \
+    --source-ref "refs/tags/v$VERSION"
 done
 
 python -m venv venv

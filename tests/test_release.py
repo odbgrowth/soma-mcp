@@ -9,6 +9,7 @@ from __future__ import annotations
 import importlib.metadata
 import importlib.util
 import logging
+import re
 import sys
 from pathlib import Path
 from types import ModuleType
@@ -116,6 +117,30 @@ def test_release_notes_links_point_at_the_tag():
     real = check_release.absolute_links(
         check_release.changelog_section(soma_mcp.__version__), base)
     assert "](docs/" not in real and "](RELEASE.md" not in real and "](CHANGELOG.md" not in real
+
+
+def _attestation_commands(path: Path) -> list[str]:
+    """Every `gh attestation verify` command in `path` as one string: the shell
+    continuation (`\\`, or `\\\\"` inside the workflow's echo) joins the lines."""
+    lines = path.read_text(encoding="utf-8").splitlines()
+    commands = []
+    for start, line in enumerate(lines):
+        if not re.search(r"(?<!`)gh attestation verify", line):
+            continue  # prose that merely names the command
+        command, end = line, start
+        while command.rstrip().rstrip('"').endswith("\\") and end + 1 < len(lines):
+            end += 1
+            command += " " + lines[end].strip()
+        commands.append(command)
+    return commands
+
+
+@pytest.mark.parametrize("name", ["RELEASE.md", ".github/workflows/release.yml"])
+def test_attestation_verification_is_bound_to_the_release_tag(name):
+    commands = _attestation_commands(ROOT / name)
+    assert commands, f"{name} no longer shows a gh attestation verify command"
+    for command in commands:
+        assert re.search(r'--source-ref\s+"?refs/tags/', command), command
 
 
 def test_declared_floors_are_read_from_pyproject():
