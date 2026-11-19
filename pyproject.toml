@@ -1,6 +1,6 @@
 [build-system]
-# setuptools>=84.0.0 understands PEP 639 license expressions (`license = "Apache-2.0"`).
-requires = ["setuptools>=84.0.0"]
+# setuptools>=84.2.1 understands PEP 639 license expressions (`license = "Apache-2.0"`).
+requires = ["setuptools>=84.2.1"]
 build-backend = "setuptools.build_meta"
 
 [project]
@@ -50,11 +50,11 @@ auth = [
 dev = [
     "pytest>=9.1.1",
     "pytest-cov>=7.1.0",
-    "ruff>=0.17,<0.18",
+    "ruff>=0.17.5,<0.18",
     "mypy>=2.4,<2.5",
     "build>=1.6.1",
     "twine>=7.0.0",
-    "pip-audit>=2.9",
+    "pip-audit>=2.10.1",
 ]
 
 [project.urls]

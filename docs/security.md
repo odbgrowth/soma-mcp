@@ -35,7 +35,7 @@ call except `soma_whoami`:
 - write access (`soma_write`, `soma_update`, `soma_delete`): additionally in
   `MCP_SCHRIJF_SUBJECTS`;
 - **fail closed:** an empty or missing allowlist denies everything unless
-  `MCP_SINGLE_USER` is exactly `1`.
+  `MCP_SINGLE_USER` is exactly `1` and `MCP_TOEGANG_SUBJECTS` is empty.
 
 Even a correctly issued token from your own Auth0 tenant cannot read the memory
 unless its subject is listed. Details: [`auth.md`](auth.md).
