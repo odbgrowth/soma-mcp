@@ -277,7 +277,8 @@ jobs:
             echo "sha256sum --check SHA256SUMS"
             for file in "soma_mcp-${VERSION}-py3-none-any.whl" "soma_mcp-${VERSION}.tar.gz"; do
               echo "gh attestation verify $file --repo $GH_REPO \\"
-              echo "  --signer-workflow $GH_REPO/.github/workflows/release.yml"
+              echo "  --signer-workflow $GH_REPO/.github/workflows/release.yml \\"
+              echo "  --source-ref refs/tags/$TAG"
             done
             echo '```'
             echo

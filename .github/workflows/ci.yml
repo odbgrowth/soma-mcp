@@ -121,8 +121,14 @@ jobs:
         run: .venv-floor/bin/python tools/check_floors.py
       - name: Pytest at the floors
         run: .venv-floor/bin/python -m pytest -q
+      # No patched dnspython exists for Python 3.10 (2.9.x needs 3.11), so these
+      # two advisories are ignored here only (2026-11-19). Remove both flags
+      # when Python 3.10 is dropped. The runtime audit in `security` ignores nothing.
       - name: Audit the floors
-        run: python -m pip_audit --strict --no-deps --disable-pip --progress-spinner off -r floor-requirements.txt
+        run: |
+          python -m pip_audit --strict --no-deps --disable-pip --progress-spinner off \
+            --ignore-vuln CVE-2026-114605 --ignore-vuln CVE-2026-128089 \
+            -r floor-requirements.txt
 
   security:
     name: Security (pip-audit, gitleaks)

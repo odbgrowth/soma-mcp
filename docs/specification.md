@@ -10,7 +10,7 @@ Context Protocol, revision **2026-07-28**. Gap analysis and test evidence:
 |---|---|
 | Protocol | MCP **2026-07-28**; handshake revisions 2024-11-05, 2025-03-26, 2025-06-18, 2025-11-25 for older clients |
 | Framing | JSON-RPC 2.0 |
-| Framework | [FastMCP](https://github.com/PrefectHQ/fastmcp) `>=4.1,<5` on the [MCP Python SDK](https://github.com/modelcontextprotocol/python-sdk) `>=2.3,<3` |
+| Framework | [FastMCP](https://github.com/PrefectHQ/fastmcp) `>=4.1.2,<5` on the [MCP Python SDK](https://github.com/modelcontextprotocol/python-sdk) `>=2.3,<3` |
 | Transport | Streamable HTTP at `/mcp`, default port `8000` |
 | Authorization | OAuth 2.1 through Auth0 (`Auth0Provider`), optional for local use |
 | Server identity | `serverInfo.name` = `SOMA`, `serverInfo.version` = `soma_mcp.__version__` |
@@ -120,7 +120,8 @@ applies:
 
 - `MCP_TOEGANG_SUBJECTS` for every tool except `soma_whoami`;
 - `MCP_SCHRIJF_SUBJECTS` additionally for the write tools;
-- fail closed when an allowlist is missing, unless `MCP_SINGLE_USER=1`;
+- fail closed when an allowlist is missing, unless `MCP_SINGLE_USER=1` and
+  `MCP_TOEGANG_SUBJECTS` is empty;
 - a per-subject sliding-window rate limit (`MCP_RATE_LIMIT`, default 30/min).
 
 Details: [`auth.md`](auth.md).

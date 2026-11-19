@@ -7,10 +7,13 @@ audit log) is covered without standing up an auth environment.
 """
 
 import json
+import logging
+import os
 from pathlib import Path
 
 import pytest
 
+from soma_mcp.config import data_dir
 from soma_mcp.engine import InMemoryEngine
 from soma_mcp.kernel import _DATA_BOUNDARY, MAX_NOTE_CHARS, Kernel
 
@@ -91,6 +94,49 @@ def test_write_allowlist_alone_does_not_grant_access(monkeypatch):
     monkeypatch.setenv("MCP_SCHRIJF_SUBJECTS", "auth0|writer")
     monkeypatch.setenv("MCP_RATE_LIMIT", "0")
     assert "error" in Kernel(InMemoryEngine()).write("auth0|writer", "x")
+
+
+def test_single_user_flag_does_not_open_writes_next_to_an_access_list(monkeypatch):
+    """ADR-004: an access allowlist ends single-user mode, so an empty write
+    allowlist means nobody writes, not everybody."""
+    monkeypatch.setenv("MCP_SINGLE_USER", "1")
+    monkeypatch.setenv("MCP_TOEGANG_SUBJECTS", "auth0|owner,auth0|reader")
+    monkeypatch.setenv("MCP_RATE_LIMIT", "0")
+    k = Kernel(InMemoryEngine())
+    for subject in ("auth0|owner", "auth0|reader"):
+        assert k.write(subject, "a fact")["error"].startswith("no write access")
+        assert k.update(subject, "note-ref-0001", "x")["error"].startswith("no write access")
+        deleted = k.delete(subject, "note-ref-0001", confirm=True)
+        assert deleted["error"].startswith("no write access")
+        assert k.search(subject, "anything") == []
+    assert "error" in k.search("auth0|stranger", "anything")[0]
+
+
+def test_denial_next_to_an_access_list_does_not_claim_single_user_is_off(monkeypatch):
+    monkeypatch.setenv("MCP_SINGLE_USER", "1")
+    monkeypatch.setenv("MCP_TOEGANG_SUBJECTS", "auth0|owner")
+    monkeypatch.setenv("MCP_RATE_LIMIT", "0")
+    error = Kernel(InMemoryEngine()).write("auth0|owner", "x")["error"]
+    assert error.startswith("no write access")
+    assert "MCP_SINGLE_USER off" not in error
+    assert "MCP_TOEGANG_SUBJECTS" in error
+
+
+def test_denial_without_the_flag_keeps_its_text(monkeypatch):
+    monkeypatch.setenv("MCP_RATE_LIMIT", "0")
+    error = Kernel(InMemoryEngine()).search("anyone", "x")[0]["error"]
+    assert error == ("no access to this instance: allowlist MCP_TOEGANG_SUBJECTS not set "
+                     "(MCP_SINGLE_USER off)")
+
+
+def test_single_user_with_only_a_write_list_keeps_reads_open(monkeypatch):
+    monkeypatch.setenv("MCP_SINGLE_USER", "1")
+    monkeypatch.setenv("MCP_SCHRIJF_SUBJECTS", "auth0|owner")
+    monkeypatch.setenv("MCP_RATE_LIMIT", "0")
+    k = Kernel(InMemoryEngine())
+    assert k.write("auth0|owner", "a fact") == {"status": "saved", "chunks": 1}
+    assert k.search("auth0|reader", "fact")[0]["id"] == "note-ref-0001-0"
+    assert k.write("auth0|reader", "x")["error"].startswith("no write access")
 
 
 # --- rate limit ---
@@ -219,6 +265,38 @@ def test_writes_are_audited_without_note_text(single_user, tmp_path):
 def test_audit_failure_never_blocks_a_write(single_user, monkeypatch, tmp_path):
     monkeypatch.setenv("SOMA_DATA", str(Path(tmp_path) / "does-not-exist"))
     assert single_user.write("subj", "still saved")["status"] == "saved"
+
+
+def test_audit_log_follows_the_shared_data_directory(single_user, monkeypatch, tmp_path):
+    """A trailing newline in SOMA_DATA (a secret-file habit) must not move the log."""
+    monkeypatch.setenv("SOMA_DATA", f"{tmp_path}\n")
+    single_user.write("subj", "a fact")
+    assert (data_dir() / "mcp_audit.jsonl").is_file()
+    assert data_dir() == Path(tmp_path)
+
+
+def test_audit_failure_is_logged_for_every_line_without_the_target(
+        single_user, monkeypatch, tmp_path, caplog):
+    monkeypatch.setenv("SOMA_DATA", str(Path(tmp_path) / "does-not-exist"))
+    with caplog.at_level(logging.WARNING, logger="soma_mcp"):
+        assert single_user.write("subj", "secret medical fact")["status"] == "saved"
+        assert single_user.update("subj", "note-ref-0001", "corrected fact")["status"] == "updated"
+    records = [r for r in caplog.records if r.levelno == logging.WARNING]
+    assert len(records) == 2
+    assert "soma_write" in records[0].getMessage()
+    assert "soma_update" in records[1].getMessage()
+    assert "FileNotFoundError" in caplog.text
+    assert "note-ref-0001" not in caplog.text and "secret medical fact" not in caplog.text
+
+
+@pytest.mark.skipif(os.name != "posix", reason="POSIX file modes")
+def test_new_audit_file_is_owner_only(single_user, tmp_path):
+    previous = os.umask(0o022)  # a permissive umask must not leak into the audit file
+    try:
+        single_user.write("subj", "a fact")
+    finally:
+        os.umask(previous)
+    assert (Path(tmp_path) / "mcp_audit.jsonl").stat().st_mode & 0o777 == 0o600
 
 
 def test_debug_exposes_both_retrieval_stages(single_user):

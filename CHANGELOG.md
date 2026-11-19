@@ -11,6 +11,21 @@ the **MCP protocol revision** the server speaks.
 
 ## [Unreleased]
 
+### Security
+
+- `MCP_SINGLE_USER=1` now applies only while `MCP_TOEGANG_SUBJECTS` is empty. With
+  an access list and no `MCP_SCHRIJF_SUBJECTS`, nobody can write, update or delete
+  any more (before, every subject on the access list could); set
+  `MCP_SCHRIJF_SUBJECTS` if you relied on that
+  ([ADR-004](docs/adr/004-single-user-mode-and-allowlists.md)).
+- The audit log now follows `SOMA_DATA` like the token store (surrounding whitespace
+  is stripped), a new file is created owner-only (`0600`), and a failed audit write
+  logs a warning (tool and error type only) instead of passing silently; the tool
+  call itself still succeeds.
+- Raise the `fastmcp` floor from `>=4.1` to `>=4.1.2`: earlier 4.1 releases carry
+  GHSA-7xgj-8392-5q4r and GHSA-vqqp-x5qm-5qp4, fixed in 4.1.2. The dependency-floor
+  job audits that floor, so it also stops reporting them.
+
 ## [0.2.0] - 2026-10-13
 
 First tagged release. `0.1.0` was the untagged initial publication of the
