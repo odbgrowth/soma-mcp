@@ -1,6 +1,6 @@
 [build-system]
-# setuptools>=84.0.0 understands PEP 639 license expressions (`license = "Apache-2.0"`).
-requires = ["setuptools>=84.0.0"]
+# setuptools>=84.2.1 understands PEP 639 license expressions (`license = "Apache-2.0"`).
+requires = ["setuptools>=84.2.1"]
 build-backend = "setuptools.build_meta"
 
 [project]
