@@ -32,9 +32,9 @@ classifiers = [
 # `mcp` stays a direct dependency because SOMA imports its protocol types
 # (`mcp.types.ToolAnnotations`, `mcp.types.version`) and documents its Client.
 # cryptography is used on every OAuth path (JWT verification, Fernet stores);
-# 50 is the first release without known advisories (pip-audit, 2026-10).
+# the 50 series is the first without known advisories (pip-audit, 2026-10).
 dependencies = [
-    "cryptography>=50",
+    "cryptography>=50.0.2",
     "fastmcp>=4.1.2,<5",
     "mcp>=2.3,<3",
 ]
@@ -43,7 +43,7 @@ dependencies = [
 # Encrypted, persistent OAuth token storage (FileTreeStore + Fernet). FastMCP 4
 # already pulls this in; the extra pins the store features SOMA imports directly.
 auth = [
-    "py-key-value-aio[filetree,wrappers-encryption]>=0.4.4,<0.5",
+    "py-key-value-aio[filetree,wrappers-encryption]>=0.4.6,<0.5",
 ]
 # Contributor tooling. Linters are bounded to a minor series so a new release
 # cannot turn CI red on its own; Dependabot proposes the bumps.
