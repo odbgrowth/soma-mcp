@@ -224,6 +224,9 @@ reproducible (archive metadata).
 
 ## 9. Post-release verification
 
+Use a current GitHub CLI from the official packages: the 2.46 package that
+Ubuntu ships has no `gh attestation` command (checked with 2.105.0).
+
 ```bash
 VERSION=X.Y.Z
 mkdir "/tmp/soma-mcp-$VERSION" && cd "/tmp/soma-mcp-$VERSION"
