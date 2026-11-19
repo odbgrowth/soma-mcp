@@ -112,6 +112,23 @@ def test_single_user_flag_does_not_open_writes_next_to_an_access_list(monkeypatc
     assert "error" in k.search("auth0|stranger", "anything")[0]
 
 
+def test_denial_next_to_an_access_list_does_not_claim_single_user_is_off(monkeypatch):
+    monkeypatch.setenv("MCP_SINGLE_USER", "1")
+    monkeypatch.setenv("MCP_TOEGANG_SUBJECTS", "auth0|owner")
+    monkeypatch.setenv("MCP_RATE_LIMIT", "0")
+    error = Kernel(InMemoryEngine()).write("auth0|owner", "x")["error"]
+    assert error.startswith("no write access")
+    assert "MCP_SINGLE_USER off" not in error
+    assert "MCP_TOEGANG_SUBJECTS" in error
+
+
+def test_denial_without_the_flag_keeps_its_text(monkeypatch):
+    monkeypatch.setenv("MCP_RATE_LIMIT", "0")
+    error = Kernel(InMemoryEngine()).search("anyone", "x")[0]["error"]
+    assert error == ("no access to this instance: allowlist MCP_TOEGANG_SUBJECTS not set "
+                     "(MCP_SINGLE_USER off)")
+
+
 def test_single_user_with_only_a_write_list_keeps_reads_open(monkeypatch):
     monkeypatch.setenv("MCP_SINGLE_USER", "1")
     monkeypatch.setenv("MCP_SCHRIJF_SUBJECTS", "auth0|owner")

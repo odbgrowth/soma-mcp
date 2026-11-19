@@ -46,12 +46,15 @@ def _meta_fields(m: dict[str, Any] | None) -> dict[str, Any]:
             "herkomst": m.get("herkomst", ""), "gesprekstitel": m.get("gesprekstitel", "")}
 
 
+def _single_user_flag() -> bool:
+    return os.environ.get("MCP_SINGLE_USER", "").strip() == "1"
+
+
 def single_user() -> bool:
     """Deliberate single-user mode (no allowlist needed): MCP_SINGLE_USER=1 and no
     access allowlist. Next to an access allowlist every allowlist fails CLOSED
     (ADR-004). Without the flag the guard fails closed too — see subject_check."""
-    return (os.environ.get("MCP_SINGLE_USER", "").strip() == "1"
-            and not os.environ.get(ACCESS_ALLOWLIST_ENV, "").strip())
+    return _single_user_flag() and not os.environ.get(ACCESS_ALLOWLIST_ENV, "").strip()
 
 
 def subject_check(subject: str | None, env_name: str, right: str) -> Result | None:
@@ -60,8 +63,11 @@ def subject_check(subject: str | None, env_name: str, right: str) -> Result | No
     from opening the public MCP to the world. Returns an error dict or None."""
     allowed = os.environ.get(env_name, "").strip()
     if not allowed:
-        return None if single_user() else {
-            "error": f"no {right}: allowlist {env_name} not set (MCP_SINGLE_USER off)"}
+        if single_user():
+            return None
+        why = (f"single-user mode does not apply next to {ACCESS_ALLOWLIST_ENV}"
+               if _single_user_flag() else "MCP_SINGLE_USER off")
+        return {"error": f"no {right}: allowlist {env_name} not set ({why})"}
     if subject not in {s.strip() for s in allowed.split(",") if s.strip()}:
         return {"error": f"no {right} for this token (subject: {subject})"}
     return None

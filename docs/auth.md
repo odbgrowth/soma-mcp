@@ -127,8 +127,9 @@ Authorization is enforced in the kernel on every call:
 ## 5. Fail-closed semantics
 
 ```text
-allowlist empty? ── MCP_SINGLE_USER exactly "1"? ── yes: allow (single-user mode)
-                                                 └─ no : deny
+allowlist empty? ── MCP_SINGLE_USER exactly "1"
+                    and MCP_TOEGANG_SUBJECTS empty? ── yes: allow (single-user mode)
+                                                    └─ no : deny
 subject not in allowlist? ── deny
 ```
 
