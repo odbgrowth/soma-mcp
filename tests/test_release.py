@@ -145,8 +145,8 @@ def test_attestation_verification_is_bound_to_the_release_tag(name):
 
 def test_declared_floors_are_read_from_pyproject():
     floors = check_floors.declared_floors()
-    assert floors == {"cryptography": "50", "fastmcp": "4.1.2", "mcp": "2.3",
-                      "py-key-value-aio": "0.4.4"}
+    assert floors == {"cryptography": "50.0.2", "fastmcp": "4.1.2", "mcp": "2.3",
+                      "py-key-value-aio": "0.4.6"}
     assert check_floors.release("4.1") == check_floors.release("4.1.0") == (4, 1)
     assert check_floors.release("4.1.2") == (4, 1, 2) != check_floors.release("4.1")
     assert check_floors.release("50.0.2") != check_floors.release("50")
