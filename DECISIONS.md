@@ -8,3 +8,5 @@ Accepted architecture decisions live in `docs/adr/`.
   protocol 2026-07-28; encrypted `FileTreeStore` for OAuth state; fail-closed
   configuration; loopback bind and DNS-rebinding guard without authentication;
   one version source and tag-driven releases.
+- ADR-004 (accepted 2026-11-19): single-user mode applies only without an access
+  allowlist; next to a configured one, a missing allowlist fails closed.

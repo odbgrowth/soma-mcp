@@ -21,7 +21,7 @@ Keep these apart in every note and changelog entry:
 |---|---|---|
 | SOMA MCP package version | `src/soma_mcp/__init__.py` (`__version__`, the only source) | `0.2.0` |
 | Release tag | Git, annotated | `v0.2.0` |
-| FastMCP / MCP SDK compatibility | `pyproject.toml` dependency ranges | `fastmcp>=4.1,<5`, `mcp>=2.3,<3` |
+| FastMCP / MCP SDK compatibility | `pyproject.toml` dependency ranges | `fastmcp>=4.1.2,<5`, `mcp>=2.3,<3` |
 | MCP protocol revision | negotiated by the MCP SDK; reported by `soma-mcp --version` | `2026-07-28` (+ handshake revisions) |
 
 ## 1. Choose the version
@@ -224,6 +224,9 @@ reproducible (archive metadata).
 
 ## 9. Post-release verification
 
+Use a current GitHub CLI from the official packages: the 2.46 package that
+Ubuntu ships has no `gh attestation` command (checked with 2.105.0).
+
 ```bash
 VERSION=X.Y.Z
 mkdir "/tmp/soma-mcp-$VERSION" && cd "/tmp/soma-mcp-$VERSION"
@@ -231,7 +234,8 @@ gh release download "v$VERSION" --repo odbgrowth/soma-mcp
 sha256sum --check SHA256SUMS
 for f in "soma_mcp-$VERSION-py3-none-any.whl" "soma_mcp-$VERSION.tar.gz"; do
   gh attestation verify "$f" --repo odbgrowth/soma-mcp \
-    --signer-workflow odbgrowth/soma-mcp/.github/workflows/release.yml
+    --signer-workflow odbgrowth/soma-mcp/.github/workflows/release.yml \
+    --source-ref "refs/tags/v$VERSION"
 done
 
 python -m venv venv
@@ -281,7 +285,7 @@ A published tag is history: do not delete or move it. Roll back by releasing.
   token store.
 - **Dependency regression** (a new FastMCP or MCP SDK minor inside the range
   breaks something): release a patch that tightens the range, for example
-  `fastmcp>=4.1,<4.3`, then fix forward.
+  `fastmcp>=4.1.2,<4.3`, then fix forward.
 - **OAuth token storage** (0.2.0 moved from `DiskStore` to an encrypted
   `FileTreeStore`): rolling back to 0.1.x means connectors register once more
   against an empty store. Never restore or copy an old `mcp_tokens/` DiskStore

@@ -6,7 +6,7 @@ SOMA's own CI **tests**, what it **delegates** to FastMCP and the MCP Python
 SDK, what it **leaves out on purpose**, and what is **roadmap**.
 
 > **Summary.** SOMA MCP implements a tested MCP profile whose content is tools
-> only, on the official stack (FastMCP `>=4.1,<5`, MCP Python SDK `>=2.3,<3`). Its CI drives
+> only, on the official stack (FastMCP `>=4.1.2,<5`, MCP Python SDK `>=2.3,<3`). Its CI drives
 > the server through the official clients on both protocol eras and runs the
 > applicable scenarios of the official MCP conformance suite. It does not claim
 > full conformance: SOMA offers no prompts, resources or completions (FastMCP
