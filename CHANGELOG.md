@@ -11,6 +11,11 @@ the **MCP protocol revision** the server speaks.
 
 ## [Unreleased]
 
+### Changed
+
+- Raise the `cryptography` floor to `>=50.0.2` and the `py-key-value-aio` floor to
+  `>=0.4.6` (from `>=50` and `>=0.4.4`), the versions the dependency-floor job tests.
+
 ### Security
 
 - `MCP_SINGLE_USER=1` now applies only while `MCP_TOEGANG_SUBJECTS` is empty. With
