@@ -27,6 +27,7 @@ from collections.abc import Sequence
 from typing import TYPE_CHECKING, Any
 
 from fastmcp import FastMCP
+from fastmcp import settings as fastmcp_settings
 from fastmcp.server.dependencies import get_access_token
 from mcp.types.version import HANDSHAKE_PROTOCOL_VERSIONS, LATEST_MODERN_VERSION
 
@@ -52,6 +53,8 @@ if TYPE_CHECKING:
 log = logging.getLogger("soma_mcp")
 
 SERVER_NAME = "SOMA"
+# FastMCP >= 4.2 announces listChanged/subscribe by default; the surface is fixed.
+SUBSCRIPTIONS_SETTING = "enable_subscriptions_listen"
 
 
 def version_report() -> str:
@@ -222,8 +225,16 @@ def build_server(engine: Engine | None = None) -> FastMCP:
     # InitializeResult (handshake era); clients treat it differently (some inject
     # it into the model's context, some don't), so the rules that matter also
     # live in the individual tool docstrings below. version= is serverInfo.version.
-    mcp = FastMCP(SERVER_NAME, instructions=build_instructions(), version=__version__,
-                  auth=_build_auth(load_auth_config()), mask_error_details=True)
+    auth = _build_auth(load_auth_config())
+    previous = getattr(fastmcp_settings, SUBSCRIPTIONS_SETTING, None)
+    if previous is not None:
+        setattr(fastmcp_settings, SUBSCRIPTIONS_SETTING, False)
+    try:
+        mcp = FastMCP(SERVER_NAME, instructions=build_instructions(), version=__version__,
+                      auth=auth, mask_error_details=True)
+    finally:
+        if previous is not None:
+            setattr(fastmcp_settings, SUBSCRIPTIONS_SETTING, previous)
 
     @mcp.tool(annotations=ANNOTATIONS["soma_search"])
     def soma_search(query: str, limit: int = 15) -> list[dict[str, Any]]:

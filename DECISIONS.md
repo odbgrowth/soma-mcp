@@ -10,3 +10,6 @@ Accepted architecture decisions live in `docs/adr/`.
   one version source and tag-driven releases.
 - ADR-004 (accepted 2026-11-19): single-user mode applies only without an access
   allowlist; next to a configured one, a missing allowlist fails closed.
+- 2026-11-25: the announced surface stays fixed (nine tools, no prompts or resources); `subscriptions/listen` and
+  its `listChanged`/`subscribe` announcements stay off, forced at build time regardless of environment. No ADR: the
+  surface does not change.

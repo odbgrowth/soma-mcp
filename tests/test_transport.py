@@ -17,6 +17,7 @@ from __future__ import annotations
 import json
 from typing import Any
 
+import fastmcp
 import httpx2
 import pytest
 from fastmcp import Client as FastMCPClient
@@ -78,6 +79,26 @@ async def test_discovery_identity_and_instructions(local_mode, mode, protocol):
             by_alias=True, exclude_none=True, mode="json") == CAPABILITIES[mode]
         assert await client.list_prompts() == []
         assert await client.list_resources() == []
+
+
+@pytest.mark.parametrize(("mode", "protocol"), ERAS)
+async def test_operator_cannot_enable_subscriptions_listen(local_mode, monkeypatch, mode, protocol):
+    monkeypatch.setenv("FASTMCP_ENABLE_SUBSCRIPTIONS_LISTEN", "true")
+    if hasattr(fastmcp.settings, server.SUBSCRIPTIONS_SETTING):
+        monkeypatch.setattr(fastmcp.settings, server.SUBSCRIPTIONS_SETTING, True)
+    async with FastMCPClient(server.build_server(), mode=mode) as client:
+        assert client.server_capabilities is not None
+        assert client.server_capabilities.model_dump(
+            by_alias=True, exclude_none=True, mode="json") == CAPABILITIES[mode]
+
+
+@pytest.mark.skipif(not hasattr(fastmcp.settings, server.SUBSCRIPTIONS_SETTING),
+                    reason="this FastMCP has no subscriptions-listen setting (before 4.2)")
+@pytest.mark.parametrize("previous", [True, False])
+def test_build_server_restores_subscriptions_setting(local_mode, monkeypatch, previous):
+    monkeypatch.setattr(fastmcp.settings, server.SUBSCRIPTIONS_SETTING, previous)
+    server.build_server()
+    assert getattr(fastmcp.settings, server.SUBSCRIPTIONS_SETTING) is previous
 
 
 @pytest.mark.parametrize(("mode", "protocol"), ERAS)
