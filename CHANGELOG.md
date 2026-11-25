@@ -13,6 +13,8 @@ the **MCP protocol revision** the server speaks.
 
 ### Changed
 
+- Switch off FastMCP's `enable_subscriptions_listen` while building the server (FastMCP 4.2 turns it on by
+  default), so the fixed tool-only surface is unchanged and `FASTMCP_ENABLE_SUBSCRIPTIONS_LISTEN` cannot re-enable it.
 - Raise the `cryptography` floor to `>=50.0.2` and the `py-key-value-aio` floor to
   `>=0.4.6` (from `>=50` and `>=0.4.4`), the versions the dependency-floor job tests.
 
