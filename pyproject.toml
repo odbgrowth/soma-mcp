@@ -35,7 +35,7 @@ classifiers = [
 # the 50 series is the first without known advisories (pip-audit, 2026-10).
 dependencies = [
     "cryptography>=50.0.2",
-    "fastmcp>=4.1.2,<5",
+    "fastmcp>=4.1.8,<5",
     "mcp>=2.3,<3",
 ]
 
