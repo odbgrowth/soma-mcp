@@ -45,9 +45,21 @@ Auth0 as the upstream identity provider and a consent screen before the
 redirect. For a user it is "connect, sign in at Auth0, connected". In the Auth0
 application, set the allowed callback URL to `BASE_URL` + `/auth/callback`.
 
-`BASE_URL` must be the public `https://` URL in production. Client redirect URIs
-are not restricted by SOMA (FastMCP's default); the consent screen is what a
-user sees before an unknown client gets a token.
+`BASE_URL` must be the public `https://` URL in production. SOMA configures no
+redirect URI allowlist, so FastMCP's own rules decide: browser-unsafe schemes
+(`javascript:`, `data:`, `file:`, `vbscript:`) are refused, a plain `http`
+redirect URI is accepted only for a loopback host, and a client registered with
+`application_type: web` needs an `https` redirect URI on a non-loopback host.
+Within those rules a registered client may use the redirect URIs it registered
+(loopback ports may vary) and a client ID metadata document client the ones its
+document lists; the consent screen is what a user sees before an unknown client
+gets a token.
+
+Every client the proxy registers is a public client: the registration response
+carries `token_endpoint_auth_method: none` and no client secret, whatever method
+the client asked for, and the authorization server metadata lists `none` (plus
+`private_key_jwt` for client ID metadata documents) as token endpoint
+authentication methods. PKCE with `S256` protects the code exchange.
 
 ## 2. Token storage
 

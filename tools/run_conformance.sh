@@ -12,7 +12,9 @@
 # first release with 2026-07-28 scenarios. To change versions, edit
 # tools/conformance/package.json and regenerate the lockfile from the repository
 # root with `npm install --prefix tools/conformance --package-lock-only --ignore-scripts`.
-# Nothing refreshes the lockfile automatically; review it when bumping the suites.
+# Dependabot has no version-update entry for this directory, so the suite versions
+# change only by hand; its security updates do open pull requests against the
+# lockfile for a vulnerable transitive package. Review it when bumping the suites.
 set -eu
 
 URL="${1:-http://127.0.0.1:8000/mcp}"

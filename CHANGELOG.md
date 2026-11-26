@@ -18,6 +18,15 @@ the **MCP protocol revision** the server speaks.
 - Raise the `cryptography` floor to `>=50.0.2` and the `py-key-value-aio` floor to
   `>=0.4.6` (from `>=50` and `>=0.4.4`), the versions the dependency-floor job tests.
 
+### Fixed
+
+- Documentation checked against the code and a running server, and corrected: tools carry a
+  FastMCP-derived `title` and generic `outputSchema`; a call that does not fit the input schema
+  returns `isError: true` instead of a JSON-RPC error; `subscriptions/listen` is forced off;
+  registered OAuth clients are public clients and FastMCP's redirect URI rules apply; the audit
+  file mode and failure warning; the MCP Inspector's Node requirement; how Dependabot treats the
+  conformance lockfile.
+
 ### Security
 
 - `MCP_SINGLE_USER=1` now applies only while `MCP_TOEGANG_SUBJECTS` is empty. With

@@ -60,8 +60,12 @@ handshake.
 
 ## 4. Capabilities
 
-SOMA's surface is **tools**: nine tools, listed by `tools/list`. FastMCP 4.1
-also advertises its framework defaults, which SOMA leaves empty or unused:
+SOMA's surface is **tools**: nine tools, listed by `tools/list`. FastMCP also
+advertises its framework defaults, which SOMA leaves empty or unused.
+`build_server` switches FastMCP's `enable_subscriptions_listen` setting off
+while it creates the server (FastMCP 4.2 turns it on by default, and
+`FASTMCP_ENABLE_SUBSCRIPTIONS_LISTEN` cannot re-enable it), so the announced
+surface is the same across the supported FastMCP range:
 
 | Capability | 2026-07-28 (`server/discover`) | Handshake era (`initialize`) | Content |
 |---|---|---|---|
@@ -97,11 +101,18 @@ Annotations travel with `tools/list` under the MCP wire names `readOnlyHint`,
 `destructiveHint`, `idempotentHint` and `openWorldHint` (Python code uses the
 SDK's snake_case attributes). A transport test asserts the wire form.
 
+FastMCP adds two derived fields to every tool in `tools/list`: a display `title`
+(for example `Soma Search`) and a generic `outputSchema` built from the return
+type, an open object, or for `soma_search` an object whose `result` is an array
+of objects. Neither describes the individual result fields;
+[`tools.md`](tools.md) does.
+
 ## 6. Results and errors
 
-- **Structured results.** Every tool returns a JSON object (a list result is
-  wrapped by FastMCP as `{"result": [...]}`) in `structuredContent`, with the
-  same JSON as text content.
+- **Structured results.** Every tool result carries a JSON object in
+  `structuredContent` (a list result is wrapped by FastMCP as
+  `{"result": [...]}`) and the tool's return value as JSON text content (for
+  `soma_search` the bare list).
 - **Fenced memory text.** Every memory text a tool returns carries a
   data-boundary prefix marking it as data, not instructions; metadata labels do
   not. See [`security.md`](security.md) §6.
@@ -110,8 +121,12 @@ SDK's snake_case attributes). A transport test asserts the wire form.
   can read the reason and react.
 - **Unexpected exceptions are masked.** `mask_error_details=True` returns a
   generic message with `isError: true`; no traceback reaches the client.
-  Protocol-level failures (unknown method, invalid parameters, unsupported
-  protocol version) are standard JSON-RPC errors produced by the SDK.
+- **Invalid calls are tool errors.** A call with an unknown tool name, a missing
+  or unexpected argument, or an argument of the wrong type never reaches the
+  kernel: FastMCP answers with `isError: true` and its own validation message,
+  which quotes the offending argument. Protocol-level failures (unknown method,
+  unsupported protocol version) are standard JSON-RPC errors produced by the
+  SDK.
 
 ## 7. Authorization model (summary)
 
@@ -119,7 +134,9 @@ OAuth 2.1 establishes who is calling (the token subject). The kernel then
 applies:
 
 - `MCP_TOEGANG_SUBJECTS` for every tool except `soma_whoami`;
-- `MCP_SCHRIJF_SUBJECTS` additionally for the write tools;
+- `MCP_SCHRIJF_SUBJECTS` additionally for `soma_write`, `soma_update` and
+  `soma_delete` (`soma_feedback` writes to the feedback log and needs instance
+  access only);
 - fail closed when an allowlist is missing, unless `MCP_SINGLE_USER=1` and
   `MCP_TOEGANG_SUBJECTS` is empty;
 - a per-subject sliding-window rate limit (`MCP_RATE_LIMIT`, default 30/min).
@@ -133,7 +150,7 @@ Details: [`auth.md`](auth.md).
 | `AUTH0_CONFIG_URL`, `AUTH0_CLIENT_ID`, `AUTH0_CLIENT_SECRET`, `AUTH0_AUDIENCE`, `BASE_URL` | Auth0 OAuth configuration. All or none; partial sets refuse to start. |
 | `MCP_TOEGANG_SUBJECTS` | Comma-separated subjects allowed to use the instance. |
 | `MCP_SCHRIJF_SUBJECTS` | Comma-separated subjects allowed to write. |
-| `MCP_SINGLE_USER` | `1` to run deliberately without an allowlist (with Auth0 this admits every account the tenant can sign in; the server warns). |
+| `MCP_SINGLE_USER` | `1` to run deliberately without an allowlist; applies only while `MCP_TOEGANG_SUBJECTS` is empty (with Auth0 this admits every account the tenant can sign in; the server warns). |
 | `MCP_RATE_LIMIT` | Calls per minute per subject (default `30`; `0` disables). |
 | `MCP_JWT_SIGNING_KEY`, `MCP_STORAGE_ENCRYPTION_KEY` | Both or neither: encrypted, persistent OAuth state in `$SOMA_DATA/mcp_oauth/`. |
 | `MCP_HOST`, `MCP_PORT` | Bind address; defaults depend on whether Auth0 is configured. |

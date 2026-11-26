@@ -81,7 +81,8 @@ its log, listens on `127.0.0.1` only and rejects requests whose `Host` or
 your own machine, never for a network.
 
 List and call the tools with the official
-[MCP Inspector](https://github.com/modelcontextprotocol/inspector) (Node 22.19+):
+[MCP Inspector](https://github.com/modelcontextprotocol/inspector) (Inspector 2.16
+needs Node 22.23.4+, 24.22.1+ or 26.12.1+):
 
 ```bash
 npx @modelcontextprotocol/inspector --server-url http://127.0.0.1:8000/mcp --transport http

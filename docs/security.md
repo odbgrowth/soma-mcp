@@ -155,7 +155,10 @@ evicts idle ones, so forged subjects cannot grow memory without bound.
 
 Every write action (`soma_write`, `soma_update`, `soma_delete`) appends one JSONL
 line to `$SOMA_DATA/mcp_audit.jsonl`: time, subject, tool and target (a base id
-or a size, never note text). Logging is best effort and never blocks the write.
+or a size, never note text). A new audit file is created owner-only (mode 0600);
+an existing file keeps its mode. Logging is best effort and never blocks the
+write: a failed audit write is logged as a warning that names the tool and the
+error type only.
 
 ## 9. Error masking
 
