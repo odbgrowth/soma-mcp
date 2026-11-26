@@ -35,7 +35,8 @@ Keep these apart in every note and changelog entry:
   documentation, CI.
 
 `1.0.0` is a deliberate decision to declare the public API (`Engine`,
-`InMemoryEngine`, `Kernel`, `build_server`, `main`, the tool surface) stable. It
+`InMemoryEngine`, `Kernel`, `build_server`, `serve`, `main`, the tool surface)
+stable. It
 is never the side effect of a routine release.
 
 Pre-release versions (`rc`, `a`, `b`) are not supported by the tooling; the

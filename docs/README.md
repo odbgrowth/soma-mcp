@@ -54,7 +54,8 @@ Running the server yourself: the top-level [`README.md`](../README.md).
 
 MCP is an open standard introduced by Anthropic in November 2024. In December
 2025 it was contributed to the Agentic AI Foundation (AAIF) under the Linux
-Foundation, alongside A2A, goose and AGENTS.md. The current revision is
+Foundation, as one of its three founding projects next to goose and AGENTS.md.
+The current revision is
 **2026-07-28**, which SOMA MCP implements.
 
 - Specification: <https://modelcontextprotocol.io/specification/2026-07-28>

@@ -22,10 +22,14 @@ and `soma_search` for a single fact.
 
 ## 2. ChatGPT
 
-Add the server as a connector (remote MCP server URL `https://<your-host>/mcp`).
-Client registration is automatic (Client ID Metadata Documents, or dynamic
-client registration for older clients), so there is no manual app setup; sign
-in when asked.
+Add the server as a custom app with the server URL `https://<your-host>/mcp` and
+OAuth authentication (ChatGPT's settings have also called this a connector or a
+custom plug-in). Client registration with SOMA is automatic (Client ID Metadata
+Documents, or dynamic client registration for older clients), so nothing has to
+be set up on the SOMA or Auth0 side; sign in when asked. The app name must be
+unique in a ChatGPT workspace: while an earlier app still holds the name,
+creating a new one fails in ChatGPT itself, so pick another name or remove the
+old app first.
 
 ## 3. Cursor, VS Code and other editors
 
@@ -36,7 +40,8 @@ have I noted about this project?" while coding.
 ## 4. MCP Inspector
 
 The official [MCP Inspector](https://github.com/modelcontextprotocol/inspector)
-(Node 22.19+) browses `tools/list` and fires `tools/call` interactively:
+(Inspector 2.16 needs Node 22.23.4+, 24.22.1+ or 26.12.1+) browses `tools/list`
+and fires `tools/call` interactively:
 
 ```bash
 # web UI
